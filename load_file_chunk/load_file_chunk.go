@@ -1,4 +1,4 @@
-package main
+package load_file_chunk
 
 import (
 	"bufio"
@@ -9,15 +9,18 @@ import (
 	"testing"
 )
 
-const CHUNK_SIZE = 250 * 1024 * 1024
-const FILE_NAME = "fake_log_5120MB.txt"
+const CHUNK_SIZE = 8 //250 * 1024 * 1024
+const FILE_NAME = "test_read.txt"
 
-func LoadFileChunk(file *os.File, buf []byte, offset int64) ([]byte, int64, error) {
+func LoadFileChunk(file *os.File, offset int64) ([]byte, int64, error) {
 	_, err := file.Seek(offset, 0)
 	if err != nil {
 		return nil, offset, fmt.Errorf("error seeking to offset %d: %w", offset, err)
 	}
+
+	buf := make([]byte, CHUNK_SIZE)
 	reader := bufio.NewReaderSize(file, CHUNK_SIZE)
+
 	n, err := reader.Read(buf)
 	if err != nil && err != io.EOF {
 		return nil, offset, fmt.Errorf("error reading file: %w", err)
@@ -47,8 +50,6 @@ func main() {
 	}
 	defer file.Close()
 
-	buf := make([]byte, CHUNK_SIZE)
-
 	newFile, err := os.Create("test.txt")
 	if err != nil {
 		fmt.Printf("Error opening file: %v\n", err)
@@ -58,7 +59,7 @@ func main() {
 
 	var offset int64 = 0
 	for {
-		_, newOffset, err := LoadFileChunk(file, buf, offset)
+		_, newOffset, err := LoadFileChunk(file, offset)
 		if err != nil {
 			if err.Error() == "EOF" {
 				// fmt.Println("End of file reached")
