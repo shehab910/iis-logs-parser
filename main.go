@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	tableStr "iis-logs-parser/table_string"
 	"os"
 	"strings"
 	"sync"
@@ -212,8 +213,9 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to process log file")
 	}
-	const LINE_SEP = "\n-------------------------------------\n"
-	log.Info().Msgf("%v%v%v", LINE_SEP, SPrintMap(res), LINE_SEP)
+	log.Info().MsgFunc(func() string {
+		return MapLogMsg(res)
+	})
 }
 
 func SPrintMap(mp *map[string]int64) string {
@@ -224,4 +226,22 @@ func SPrintMap(mp *map[string]int64) string {
 		sb.WriteString(fmt.Sprintf("%v: %v\n", k, v))
 	}
 	return sb.String()
+}
+
+func MapLogMsg(mp *map[string]int64) string {
+	rows := [][]string{}
+	for k, v := range *mp {
+		rows = append(rows, []string{k, fmt.Sprintf("%v", v)})
+	}
+
+	t := tableStr.New()
+	t.SetHeaders([]string{"Status Code", "Number of Occurrences"})
+	t.SetRows(rows)
+
+	resStr, err := t.String()
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to generate table")
+	}
+	return resStr
 }
