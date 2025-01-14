@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"iis-logs-parser/parser"
+
 	"github.com/rs/zerolog"
 )
 
@@ -13,7 +15,7 @@ func init() {
 
 func TestParseLogLine(t *testing.T) {
 	line := "2023-10-10 12:00:00 192.168.1.1 GET /index.html - 80 - 192.168.1.100 Mozilla/5.0 200 0 0 123"
-	expected := &LogEntry{
+	expected := &parser.LogEntry{
 		Date:        "2023-10-10",
 		Time:        "12:00:00",
 		ServerIP:    "192.168.1.1",
@@ -30,7 +32,7 @@ func TestParseLogLine(t *testing.T) {
 		TimeTaken:   "123",
 	}
 
-	entry, err := parseLogLine(line)
+	entry, err := parser.ParseLogLine(line)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -82,7 +84,7 @@ func TestProcessLogFile(t *testing.T) {
 }
 
 func TestProcessLogLgFile(t *testing.T) {
-	fileName := "../u_ex190905.log"
+	fileName := "./u_ex190905.log"
 	expected := map[string]int64{
 		"404": 14589,
 		"304": 583,
@@ -140,7 +142,7 @@ func BenchmarkProcessLogFile(b *testing.B) {
 }
 
 func BenchmarkProcessLogLgFile(b *testing.B) {
-	fileName := "../lg_u_ex190905.log"
+	fileName := "./lg_u_ex190905.log"
 	for i := 0; i < b.N; i++ {
 		_, err := processLogFile(fileName, 1000)
 		if err != nil {
