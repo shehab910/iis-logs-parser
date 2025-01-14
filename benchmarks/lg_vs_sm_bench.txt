@@ -1,0 +1,15 @@
+goos: linux
+goarch: amd64
+pkg: iis-logs-parser/complete
+cpu: 13th Gen Intel(R) Core(TM) i7-1355U
+                    │ complete/bigger.txt │         complete/smaller.txt         │
+                    │       sec/op        │    sec/op     vs base                │
+ProcessLogLgFile-12          8067.3m ± 4%   151.7m ± 28%  -98.12% (p=0.000 n=10)
+
+                    │ complete/bigger.txt │         complete/smaller.txt         │
+                    │        B/op         │     B/op      vs base                │
+ProcessLogLgFile-12        5109.12Mi ± 0%   85.24Mi ± 0%  -98.33% (p=0.000 n=10)
+
+                    │ complete/bigger.txt │        complete/smaller.txt         │
+                    │      allocs/op      │  allocs/op   vs base                │
+ProcessLogLgFile-12         23339.9k ± 0%   391.1k ± 0%  -98.32% (p=0.000 n=10)

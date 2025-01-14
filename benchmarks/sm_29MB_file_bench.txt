@@ -1,0 +1,16 @@
+goos: linux
+goarch: amd64
+pkg: iis-logs-parser/complete
+cpu: 13th Gen Intel(R) Core(TM) i7-1355U
+BenchmarkProcessLogLgFile-12    	       8	 138008531 ns/op	89409630 B/op	  391092 allocs/op
+BenchmarkProcessLogLgFile-12    	       8	 138649683 ns/op	89389456 B/op	  391158 allocs/op
+BenchmarkProcessLogLgFile-12    	       7	 194836730 ns/op	89380918 B/op	  391061 allocs/op
+BenchmarkProcessLogLgFile-12    	       5	 219410621 ns/op	89381248 B/op	  391073 allocs/op
+BenchmarkProcessLogLgFile-12    	       7	 150901046 ns/op	89381152 B/op	  391072 allocs/op
+BenchmarkProcessLogLgFile-12    	       7	 156345127 ns/op	89375762 B/op	  391015 allocs/op
+BenchmarkProcessLogLgFile-12    	       7	 146192901 ns/op	89366877 B/op	  390923 allocs/op
+BenchmarkProcessLogLgFile-12    	       7	 152450372 ns/op	89374596 B/op	  391003 allocs/op
+BenchmarkProcessLogLgFile-12    	       7	 152791353 ns/op	89376379 B/op	  391022 allocs/op
+BenchmarkProcessLogLgFile-12    	       7	 150150476 ns/op	89393810 B/op	  391203 allocs/op
+PASS
+ok  	iis-logs-parser/complete	16.132s
