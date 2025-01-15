@@ -9,6 +9,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+//TODO FIXME: add tests for the resulting `parsed_logs` file
+
 func init() {
 	zerolog.SetGlobalLevel(zerolog.Disabled)
 }

@@ -17,7 +17,11 @@ import (
 func init() {
 	// Configure zerolog
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339})
+	logFile, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to open log file")
+	}
+	log.Logger = log.Output(logFile)
 }
 
 func processLogFile(filename string, numWorkers int) (*map[string]int64, error) {
@@ -57,6 +61,11 @@ func processLogFile(filename string, numWorkers int) (*map[string]int64, error) 
 
 	// Combiner - Fan-in - Merge
 	go func() {
+		outputFile, err := os.Create("parsed_logs.txt")
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create output file")
+		}
+
 		for entry := range results {
 			// log.Debug().
 			// 	Str("timestamp", entry.Timestamp).
@@ -66,6 +75,7 @@ func processLogFile(filename string, numWorkers int) (*map[string]int64, error) 
 			// 	Str("status", entry.StatusCode).
 			// 	Msg("Processed log entry")
 			uniqueCnt[entry.Status]++
+			fmt.Fprintf(outputFile, "%+v\n", *entry)
 		}
 
 	}()
