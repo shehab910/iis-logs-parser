@@ -7,11 +7,14 @@ import (
 	"sync"
 	"time"
 
+	db "iis-logs-parser/database"
 	"iis-logs-parser/parser"
 	"iis-logs-parser/utils"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -22,9 +25,10 @@ func init() {
 		log.Fatal().Err(err).Msg("Failed to open log file")
 	}
 	log.Logger = log.Output(logFile)
+	// log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 }
 
-func processLogFile(filename string, numWorkers int) (*map[string]int64, error) {
+func processLogFile(filename string, numWorkers int, db *gorm.DB) (*map[string]int64, error) {
 	startTime := time.Now()
 
 	file, err := os.Open(filename)
@@ -40,12 +44,14 @@ func processLogFile(filename string, numWorkers int) (*map[string]int64, error) 
 	errorsChan := make(chan error)
 	done := make(chan bool)
 
+	var wgWorkers sync.WaitGroup
+	var wgCombiner sync.WaitGroup
+
 	// Workers - Fan-out
-	var wg sync.WaitGroup
 	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
+		wgWorkers.Add(1)
 		go func(id int) {
-			defer wg.Done()
+			defer wgWorkers.Done()
 			for line := range lines {
 				entry, err := parser.ParseLogLine(line)
 				if err != nil {
@@ -60,7 +66,9 @@ func processLogFile(filename string, numWorkers int) (*map[string]int64, error) 
 	}
 
 	// Combiner - Fan-in - Merge
+	wgCombiner.Add(1)
 	go func() {
+		defer wgCombiner.Done()
 		outputFile, err := os.Create("parsed_logs.txt")
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to create output file")
@@ -76,6 +84,11 @@ func processLogFile(filename string, numWorkers int) (*map[string]int64, error) 
 			// 	Msg("Processed log entry")
 			uniqueCnt[entry.Status]++
 			fmt.Fprintf(outputFile, "%+v\n", *entry)
+
+			res := db.Create(&entry)
+			if res.Error != nil {
+				log.Error().Err(res.Error).Msgf("Failed to save log entry to database\nEntry: \n%+v", *entry)
+			}
 		}
 
 	}()
@@ -94,9 +107,10 @@ func processLogFile(filename string, numWorkers int) (*map[string]int64, error) 
 	}()
 
 	go func() {
-		wg.Wait()
+		wgWorkers.Wait()
 		close(results)
 		close(errorsChan)
+		wgCombiner.Wait()
 		done <- true
 	}()
 
@@ -136,7 +150,23 @@ func main() {
 	filename := os.Args[1]
 	numWorkers := 4
 
-	res, err := processLogFile(filename, numWorkers)
+	dbConfig, err := db.LoadConfigFromEnv()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to load database config")
+	}
+
+	dsn := dbConfig.DSN()
+	log.Info().Msgf("Connecting to database: %s", dbConfig.NoPassDSN())
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to database")
+	}
+	db.AutoMigrate(&parser.LogEntry{})
+
+	log.Info().Msg("Connected to database")
+
+	res, err := processLogFile(filename, numWorkers, db)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to process log file")
 	}

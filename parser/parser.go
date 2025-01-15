@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
 
 const (
@@ -28,6 +29,7 @@ type LogEntry struct {
 	SubStatus   string
 	Win32Status string
 	TimeTaken   string
+	gorm.Model
 }
 
 type ParseError struct {
