@@ -28,7 +28,107 @@ func init() {
 	// log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 }
 
-func processLogFile(filename string, numWorkers int, db *gorm.DB) (*map[string]int64, error) {
+func combineBatchInsert(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB, uniqueCnt *map[string]int64) {
+	defer wgCombiner.Done()
+	outputFile, err := os.Create("parsed_logs.txt")
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create output file")
+	}
+
+	entriesBatchSize := 1000
+	entriesBatch := make([]*parser.LogEntry, 0, entriesBatchSize)
+
+	for entry := range results {
+		// log.Debug().
+		// 	Str("timestamp", entry.Timestamp).
+		// 	Str("client_ip", entry.ClientIP).
+		// 	Str("method", entry.Method).
+		// 	Str("uri", entry.URIStem).
+		// 	Str("status", entry.StatusCode).
+		// 	Msg("Processed log entry")
+		(*uniqueCnt)[entry.Status]++
+		_, err := fmt.Fprintf(outputFile, "%+v\n", *entry)
+		if err != nil {
+			log.Error().Err(err).Msgf("Failed to write entry to output file\nEntry: \n%+v", *entry)
+		}
+
+		entriesBatch = append(entriesBatch, entry)
+
+		if len(entriesBatch) >= entriesBatchSize {
+
+			res := db.Create(&entriesBatch)
+
+			if res.Error != nil {
+				log.Error().Err(res.Error).Msgf("Failed to save log batch to database\nEntries: \n%+v", *entry)
+			}
+			entriesBatch = entriesBatch[:0]
+		}
+	}
+	if len(entriesBatch) >= 0 {
+
+		res := db.Create(&entriesBatch)
+
+		if res.Error != nil {
+			log.Error().Err(res.Error).Msgf("Failed to save log batch to database\nEntries: \n%+v", entriesBatch)
+
+		}
+		entriesBatch = entriesBatch[:0]
+	}
+}
+
+func combineSequentialInsert(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB, uniqueCnt *map[string]int64) {
+	defer wgCombiner.Done()
+	outputFile, err := os.Create("parsed_logs.txt")
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create output file")
+	}
+	for entry := range results {
+		(*uniqueCnt)[entry.Status]++
+		_, err := fmt.Fprintf(outputFile, "%+v\n", *entry)
+		if err != nil {
+			log.Error().Err(err).Msgf("Failed to write entry to output file\nEntry: \n%+v", *entry)
+		}
+
+		res := db.Create(entry)
+
+		if res.Error != nil {
+			log.Error().Err(res.Error).Msgf("Failed to save entry to database\nEntries: \n%+v", *entry)
+		}
+	}
+}
+
+func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, uniqueCnt *map[string]int64) {
+	defer wgCombiner.Done()
+	outputFile, err := os.Create("parsed_logs.txt")
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create output file")
+	}
+	for entry := range results {
+		(*uniqueCnt)[entry.Status]++
+		_, err := fmt.Fprintf(outputFile, "%+v\n", *entry)
+		if err != nil {
+			log.Error().Err(err).Msgf("Failed to write entry to output file\nEntry: \n%+v", *entry)
+		}
+	}
+}
+
+func combinerBuilder(dbInsertionT string, wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB, uniqueCnt *map[string]int64) func() {
+	switch dbInsertionT {
+	case "batch":
+		return func() { combineBatchInsert(wgCombiner, results, db, uniqueCnt) }
+	case "sequential":
+		return func() { combineSequentialInsert(wgCombiner, results, db, uniqueCnt) }
+	case "none":
+		return func() { combineNoDB(wgCombiner, results, uniqueCnt) }
+	default:
+		log.Fatal().Msg("Invalid combiner type, must be one of 'batch', 'sequential', or 'none'")
+		return func() {}
+	}
+}
+
+// PGPASSWORD=password psql -U postgres -h localhost -d postgres-dev -c "SELECT COUNT(*) FROM log_entries;"
+// PGPASSWORD=password psql -U postgres -h localhost -d postgres-dev -c "drop table if exists log_entries;"
+func processLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT string) (*map[string]int64, error) {
 	startTime := time.Now()
 
 	file, err := os.Open(filename)
@@ -67,31 +167,8 @@ func processLogFile(filename string, numWorkers int, db *gorm.DB) (*map[string]i
 
 	// Combiner - Fan-in - Merge
 	wgCombiner.Add(1)
-	go func() {
-		defer wgCombiner.Done()
-		outputFile, err := os.Create("parsed_logs.txt")
-		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to create output file")
-		}
-
-		for entry := range results {
-			// log.Debug().
-			// 	Str("timestamp", entry.Timestamp).
-			// 	Str("client_ip", entry.ClientIP).
-			// 	Str("method", entry.Method).
-			// 	Str("uri", entry.URIStem).
-			// 	Str("status", entry.StatusCode).
-			// 	Msg("Processed log entry")
-			uniqueCnt[entry.Status]++
-			fmt.Fprintf(outputFile, "%+v\n", *entry)
-
-			res := db.Create(&entry)
-			if res.Error != nil {
-				log.Error().Err(res.Error).Msgf("Failed to save log entry to database\nEntry: \n%+v", *entry)
-			}
-		}
-
-	}()
+	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, db, &uniqueCnt)
+	go combine()
 
 	go func() {
 		for err := range errorsChan {
@@ -166,7 +243,7 @@ func main() {
 
 	log.Info().Msg("Connected to database")
 
-	res, err := processLogFile(filename, numWorkers, db)
+	res, err := processLogFile(filename, numWorkers, db, "batch")
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to process log file")
 	}
