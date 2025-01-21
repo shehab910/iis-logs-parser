@@ -32,6 +32,10 @@ type LogEntry struct {
 	gorm.Model
 }
 
+func (entry *LogEntry) String() string {
+	return fmt.Sprintf("%+v\n", *entry)
+}
+
 type ParseError struct {
 	Line    string
 	Message string
