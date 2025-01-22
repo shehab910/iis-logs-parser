@@ -60,13 +60,21 @@ func combineBatchInsert(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEn
 	}
 	defer outputFile.Close()
 
+	bufferedWriter := bufio.NewWriter(outputFile)
+	defer func() {
+		// Flush any remaining buffered data to the file.
+		if err := bufferedWriter.Flush(); err != nil {
+			log.Error().Err(err).Msg("Failed to flush buffered data to output file")
+		}
+	}()
+
 	entriesBatchSize := 3000
 	entriesBatch := make([]*parser.LogEntry, 0, entriesBatchSize)
 
 	for entry := range results {
 		metrics.TotalRecords++
 
-		if _, err := fmt.Fprint(outputFile, entry.String()); err != nil {
+		if _, err := bufferedWriter.WriteString(entry.String()); err != nil {
 			metrics.FailedWrites++
 			log.Error().
 				Err(err).
@@ -144,10 +152,18 @@ func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry) {
 	}
 	defer outputFile.Close()
 
+	bufferedWriter := bufio.NewWriter(outputFile)
+	defer func() {
+		// Flush any remaining buffered data to the file.
+		if err := bufferedWriter.Flush(); err != nil {
+			log.Error().Err(err).Msg("Failed to flush buffered data to output file")
+		}
+	}()
+
 	for entry := range results {
 		metrics.TotalRecords++
 
-		if _, err := fmt.Fprint(outputFile, entry.String()); err != nil {
+		if _, err := bufferedWriter.WriteString(entry.String()); err != nil {
 			metrics.FailedWrites++
 			log.Error().
 				Err(err).
