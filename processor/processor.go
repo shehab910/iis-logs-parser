@@ -7,6 +7,7 @@ import (
 	"iis-logs-parser/utils"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -36,16 +37,16 @@ type Metrics struct {
 
 func (m *Metrics) LogMetrics(operation string) {
 	duration := time.Since(m.StartTime)
-	recordsPerSecond := float64(m.TotalRecords) / duration.Seconds()
+	recordsPerSecond := float64(atomic.LoadInt64(&m.TotalRecords)) / duration.Seconds()
 
 	log.Info().
 		Str("operation", operation).
-		Int64("total_records", m.TotalRecords).
-		Int64("successful_writes", m.SuccessfulWrites).
-		Int64("failed_writes", m.FailedWrites).
+		Int64("total_records", atomic.LoadInt64(&m.TotalRecords)).
+		Int64("successful_writes", atomic.LoadInt64(&m.SuccessfulWrites)).
+		Int64("failed_writes", atomic.LoadInt64(&m.FailedWrites)).
 		Float64("records_per_second", recordsPerSecond).
 		Dur("total_duration", duration).
-		Int64("batch_count", m.BatchCount).
+		Int64("batch_count", atomic.LoadInt64(&m.BatchCount)).
 		Msg("Operation metrics")
 }
 
@@ -63,11 +64,11 @@ func combineBatchInsert(
 	entriesBatch := make([]*parser.LogEntry, 0, entriesBatchSize)
 
 	for entry := range results {
-		metrics.TotalRecords++
+		atomic.AddInt64(&metrics.TotalRecords, 1)
 
 		// Write to file using synchronized writer
 		if err := writer.WriteString(entry.String()); err != nil {
-			metrics.FailedWrites++
+			atomic.AddInt64(&metrics.FailedWrites, 1)
 			log.Error().Err(err).Msg("Failed to write to output file")
 			continue
 		}
@@ -77,7 +78,7 @@ func combineBatchInsert(
 			if err := insertBatch(db, entriesBatch, metrics); err != nil {
 				log.Error().Err(err).Msg("Batch insertion failed")
 			}
-			metrics.BatchCount++
+			atomic.AddInt64(&metrics.BatchCount, 1)
 			entriesBatch = entriesBatch[:0]
 		}
 	}
@@ -87,7 +88,7 @@ func combineBatchInsert(
 		if err := insertBatch(db, entriesBatch, metrics); err != nil {
 			log.Error().Err(err).Msg("Final batch insertion failed")
 		}
-		metrics.BatchCount++
+		atomic.AddInt64(&metrics.BatchCount, 1)
 	}
 }
 
@@ -101,18 +102,18 @@ func insertBatch(db *gorm.DB, batch []*parser.LogEntry, metrics *Metrics) error 
 
 	if err := tx.Create(&batch).Error; err != nil {
 		tx.Rollback()
-		metrics.FailedWrites += int64(len(batch))
+		atomic.AddInt64(&metrics.FailedWrites, int64(len(batch)))
 		metrics.LastError = err
 		return err
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		metrics.FailedWrites += int64(len(batch))
+		atomic.AddInt64(&metrics.FailedWrites, int64(len(batch)))
 		metrics.LastError = err
 		return err
 	}
 
-	metrics.SuccessfulWrites += int64(len(batch))
+	atomic.AddInt64(&metrics.SuccessfulWrites, int64(len(batch)))
 
 	log.Debug().
 		Int("batch_size", len(batch)).
@@ -129,17 +130,17 @@ func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, wr
 	defer metrics.LogMetrics("no_db_processing")
 
 	for entry := range results {
-		metrics.TotalRecords++
+		atomic.AddInt64(&metrics.TotalRecords, 1)
 
 		if err := writer.WriteString(entry.String()); err != nil {
-			metrics.FailedWrites++
+			atomic.AddInt64(&metrics.FailedWrites, 1)
 			log.Error().
 				Err(err).
 				Str("entry", entry.String()).
 				Msg("Failed to write to output file")
 			continue
 		}
-		metrics.SuccessfulWrites++
+		atomic.AddInt64(&metrics.SuccessfulWrites, 1)
 	}
 }
 
