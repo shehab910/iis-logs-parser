@@ -87,7 +87,7 @@ func testProcessLogFileBase(t *testing.T, db *gorm.DB, dbInsertionT string) []*p
 	fileName, expected, cleanup := createTestLogFile(t, ParseCorrectLines)
 	defer cleanup()
 
-	_, err := processor.ProcessLogFile(fileName, 2, db, dbInsertionT)
+	err := processor.ProcessLogFile(fileName, 2, db, dbInsertionT)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,32 +187,26 @@ func BenchmarkProcessLogFile(b *testing.B) {
 		dbInsertionT string
 	}{
 		// {"mini_file-1.7MB-no-db", logsDir + "mini_u_ex190905.log", "none"},
-		// {"mini_file-1.7MB-sequential-db", logsDir + "mini_u_ex190905.log", "sequential"},
 		// {"mini_file-1.7MB-batch-db", logsDir + "mini_u_ex190905.log", "batch"},
-
 		// {"medium_file-29MB-no-db", logsDir + "u_ex190905.log", "none"},
-		{"medium_file-29MB-sequential-db", logsDir + "u_ex190905.log", "sequential"},
 		// {"medium_file-29MB-batch-db", logsDir + "u_ex190905.log", "batch"},
-
 		// {"large_file-1.7GB-no-db", logsDir + "lg_u_ex190905.log", "none"},
-		// {"large_file-1.7GB-sequential-db", logsDir + "lg_u_ex190905.log", "sequential"},
-		// {"large_file-1.7GB-batch-db", logsDir + "lg_u_ex190905.log", "batch"},
+		{"large_file-1.7GB-batch-db", logsDir + "lg_u_ex190905.log", "batch"},
 	}
-	c := cases[0]
 
-	// for _, c := range cases {
-	// 	// Run a sub-benchmark for each case
-	// 	b.Run(c.name, func(b *testing.B) {
-	testDB, cleanup := setupTestDB(b)
-	defer cleanup()
+	for _, c := range cases {
+		// Run a sub-benchmark for each case
+		b.Run(c.name, func(b *testing.B) {
+			testDB, cleanup := setupTestDB(b)
+			defer cleanup()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := processor.ProcessLogFile(c.file, 4, testDB, c.dbInsertionT)
-		if err != nil {
-			b.Fatalf("unexpected error: %v", err)
-		}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				err := processor.ProcessLogFile(c.file, 4, testDB, c.dbInsertionT)
+				if err != nil {
+					b.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
 	}
-	// })
-	// }
 }

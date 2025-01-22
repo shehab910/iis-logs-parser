@@ -4,7 +4,6 @@ import (
 	db "iis-logs-parser/database"
 	"iis-logs-parser/parser"
 	"iis-logs-parser/processor"
-	"iis-logs-parser/utils"
 	"os"
 
 	"github.com/rs/zerolog"
@@ -50,14 +49,8 @@ func main() {
 
 	log.Info().Msg("Connected to database")
 
-	res, err := processor.ProcessLogFile(filename, numWorkers, db, "batch")
+	err = processor.ProcessLogFile(filename, numWorkers, db, "batch")
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to process log file")
 	}
-
-	str, err := utils.MapToTableLogMsg(res)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to convert map to table")
-	}
-	log.Info().Msg(str)
 }

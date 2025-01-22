@@ -48,7 +48,7 @@ func (m *Metrics) LogMetrics(operation string) {
 		Msg("Operation metrics")
 }
 
-func combineBatchInsert(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB, uniqueCnt *map[string]int64) {
+func combineBatchInsert(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB) {
 	defer wgCombiner.Done()
 
 	metrics := &Metrics{StartTime: time.Now()}
@@ -65,7 +65,6 @@ func combineBatchInsert(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEn
 
 	for entry := range results {
 		metrics.TotalRecords++
-		(*uniqueCnt)[entry.Status]++
 
 		if _, err := fmt.Fprint(outputFile, entry.String()); err != nil {
 			metrics.FailedWrites++
@@ -133,52 +132,7 @@ func insertBatch(db *gorm.DB, batch []*parser.LogEntry, metrics *Metrics) error 
 	return nil
 }
 
-func combineSequentialInsert(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB, uniqueCnt *map[string]int64) {
-	defer wgCombiner.Done()
-
-	metrics := &Metrics{StartTime: time.Now()}
-	defer metrics.LogMetrics("sequential_insert")
-
-	outputFile, err := os.Create("parsed_logs.txt")
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create output file")
-	}
-	defer outputFile.Close()
-
-	for entry := range results {
-		metrics.TotalRecords++
-		(*uniqueCnt)[entry.Status]++
-
-		startTime := time.Now()
-
-		if _, err := fmt.Fprint(outputFile, entry.String()); err != nil {
-			metrics.FailedWrites++
-			log.Error().
-				Err(err).
-				Str("entry", entry.String()).
-				Msg("Failed to write to output file")
-			continue
-		}
-
-		if err := db.Create(entry).Error; err != nil {
-			metrics.FailedWrites++
-			metrics.LastError = err
-			log.Error().
-				Err(err).
-				Interface("entry", entry).
-				Msg("Failed to insert entry")
-			continue
-		}
-
-		metrics.SuccessfulWrites++
-
-		log.Debug().
-			Dur("duration", time.Since(startTime)).
-			Msg("Entry inserted successfully")
-	}
-}
-
-func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, uniqueCnt *map[string]int64) {
+func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry) {
 	defer wgCombiner.Done()
 
 	metrics := &Metrics{StartTime: time.Now()}
@@ -192,7 +146,6 @@ func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, un
 
 	for entry := range results {
 		metrics.TotalRecords++
-		(*uniqueCnt)[entry.Status]++
 
 		if _, err := fmt.Fprint(outputFile, entry.String()); err != nil {
 			metrics.FailedWrites++
@@ -206,32 +159,26 @@ func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, un
 	}
 }
 
-func combinerBuilder(dbInsertionT string, wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB, uniqueCnt *map[string]int64) func() {
+func combinerBuilder(dbInsertionT string, wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB) func() {
 	switch dbInsertionT {
 	case "batch":
-		return func() { combineBatchInsert(wgCombiner, results, db, uniqueCnt) }
-	case "sequential":
-		return func() { combineSequentialInsert(wgCombiner, results, db, uniqueCnt) }
+		return func() { combineBatchInsert(wgCombiner, results, db) }
 	case "none":
-		return func() { combineNoDB(wgCombiner, results, uniqueCnt) }
+		return func() { combineNoDB(wgCombiner, results) }
 	default:
-		log.Fatal().Msg("Invalid combiner type, must be one of 'batch', 'sequential', or 'none'")
+		log.Fatal().Msg("Invalid combiner type, must be one of 'batch', or 'none'")
 		return func() {}
 	}
 }
 
-// PGPASSWORD=password psql -U postgres -h localhost -d postgres-dev -c "SELECT COUNT(*) FROM log_entries;"
-// PGPASSWORD=password psql -U postgres -h localhost -d postgres-dev -c "drop table if exists log_entries;"
-func ProcessLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT string) (*map[string]int64, error) {
+func ProcessLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT string) error {
 	startTime := time.Now()
 
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
-
-	uniqueCnt := make(map[string]int64)
 
 	lines := make(chan string)
 	results := make(chan *parser.LogEntry)
@@ -261,7 +208,7 @@ func ProcessLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT s
 
 	// Combiner - Fan-in - Merge
 	wgCombiner.Add(1)
-	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, db, &uniqueCnt)
+	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, db)
 	go combine()
 
 	go func() {
@@ -295,7 +242,7 @@ func ProcessLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT s
 	close(lines)
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading file: %w", err)
+		return fmt.Errorf("error reading file: %w", err)
 	}
 
 	// Wait
@@ -308,5 +255,5 @@ func ProcessLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT s
 		Float64("lines_per_second", float64(lineCount)/duration.Seconds()).
 		Msg("Finished processing log file")
 
-	return &uniqueCnt, nil
+	return nil
 }
