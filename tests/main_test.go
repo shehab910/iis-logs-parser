@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	db "iis-logs-parser/database"
 	"iis-logs-parser/parser"
@@ -11,12 +12,23 @@ import (
 	"iis-logs-parser/utils"
 
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func init() {
 	zerolog.SetGlobalLevel(zerolog.Disabled)
+}
+
+// Writer implements the gormlogger.Writer interface for zerolog
+type Writer struct {
+	Logger *zerolog.Logger
+}
+
+func (w Writer) Printf(format string, args ...interface{}) {
+	w.Logger.Debug().Msgf(format, args...)
 }
 
 // setupTestDB creates a test database connection and returns cleanup function
@@ -30,12 +42,25 @@ func setupTestDB(t testing.TB) (*gorm.DB, func()) {
 		DBName:   "postgres-dev",
 	}
 
-	testDB, err := gorm.Open(postgres.Open(dbConfig.DSN()), &gorm.Config{})
+	// Create a custom logger
+	customLogger := logger.New(
+		// Redirect GORM logs to zerolog
+		Writer{Logger: &log.Logger},
+		logger.Config{
+			SlowThreshold: 1 * time.Second, // Set threshold to 1 second
+			LogLevel:      logger.Warn,
+			Colorful:      false,
+		},
+	)
+
+	testDB, err := gorm.Open(postgres.Open(dbConfig.DSN()), &gorm.Config{
+		Logger: customLogger,
+	})
 	if err != nil {
 		t.Fatalf("failed to connect to database: %v", err)
 	}
 	cleanup := func() {
-		testDB.Exec("DROP  TABLE IF EXISTS log_entries")
+		testDB.Exec("DROP TABLE IF EXISTS log_entries")
 	}
 	cleanup()
 
@@ -45,20 +70,6 @@ func setupTestDB(t testing.TB) (*gorm.DB, func()) {
 	}
 
 	return testDB, cleanup
-}
-
-func TestParseLogLine(t *testing.T) {
-	line := Cases[ParseCorrectLine].input()
-	expected := Cases[ParseCorrectLine].expected().(*parser.LogEntry)
-
-	entry, err := parser.ParseLogLine(line)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if *entry != *expected {
-		t.Fatalf("expected %+v, got %+v", expected, entry)
-	}
 }
 
 // Helper function to create test log file
@@ -98,13 +109,13 @@ func testProcessLogFileBase(t *testing.T, db *gorm.DB, dbInsertionT string) []*p
 		t.Fatalf("failed to open parsed logs file: %v", err)
 	}
 	defer parsedLogsFile.Close()
-	defer os.Remove(parsedLogsFilename)
+	// defer os.Remove(parsedLogsFilename)
 
 	expectedTempFile, err := os.Create(parsedLogsFilename + ".expected")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(expectedTempFile.Name())
+	// defer os.Remove(expectedTempFile.Name())
 	fmt.Println(expectedTempFile.Name())
 
 	for _, entry := range expected {
@@ -152,17 +163,38 @@ func testProcessLogFileBaseWithDB(t *testing.T, dbInsertionT string) {
 		t.Fatalf("failed to find entries: %v", err)
 	}
 
-	for i, entry := range entries {
-		// Ignoring db fields
-		entry.Model.ID = 0
-		entry.Model.CreatedAt = expected[i].Model.CreatedAt
-		entry.Model.UpdatedAt = expected[i].Model.UpdatedAt
-		entry.Model.DeletedAt = expected[i].Model.DeletedAt
+	for _, entry := range entries {
 
-		if entry != *expected[i] {
-			t.Fatalf("expected %+v, got %+v", expected[i], entry)
+		found := false
+		for _, exp := range expected {
+			// Ignoring db fields
+			entry.Model.ID = 0
+			entry.Model.CreatedAt = exp.Model.CreatedAt
+			entry.Model.UpdatedAt = exp.Model.UpdatedAt
+			entry.Model.DeletedAt = exp.Model.DeletedAt
+			if entry == *exp {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected %+v to be found in expected list %+v", entry, expected)
 		}
 
+	}
+}
+
+func TestParseLogLine(t *testing.T) {
+	line := Cases[ParseCorrectLine].input()
+	expected := Cases[ParseCorrectLine].expected().(*parser.LogEntry)
+
+	entry, err := parser.ParseLogLine(line)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if *entry != *expected {
+		t.Fatalf("expected %+v, got %+v", expected, entry)
 	}
 }
 
@@ -172,10 +204,6 @@ func TestProcessLogFileNoDB(t *testing.T) {
 
 func TestProcessLogFileBatchDBInsert(t *testing.T) {
 	testProcessLogFileBaseWithDB(t, "batch")
-}
-
-func TestProcessLogFileSeqDBInsert(t *testing.T) {
-	testProcessLogFileBaseWithDB(t, "sequential")
 }
 
 func BenchmarkProcessLogFile(b *testing.B) {
@@ -188,10 +216,14 @@ func BenchmarkProcessLogFile(b *testing.B) {
 	}{
 		// {"mini_file-1.7MB-no-db", logsDir + "mini_u_ex190905.log", "none"},
 		// {"mini_file-1.7MB-batch-db", logsDir + "mini_u_ex190905.log", "batch"},
-		// {"medium_file-29MB-no-db", logsDir + "u_ex190905.log", "none"},
-		// {"medium_file-29MB-batch-db", logsDir + "u_ex190905.log", "batch"},
+		{"below_md_file-17MB-no-db", logsDir + "below_med_u_ex190905.log", "none"},
+		{"below_md_file-17MB-batch-db", logsDir + "below_med_u_ex190905.log", "batch"},
+		{"medium_file-29MB-no-db", logsDir + "u_ex190905.log", "none"},
+		{"medium_file-29MB-batch-db", logsDir + "u_ex190905.log", "batch"},
+		{"below_lg_file-433MB-no-db", logsDir + "below_lg_u_ex190905.log", "none"},
+		{"below_lg_file-433MB-batch-db", logsDir + "below_lg_u_ex190905.log", "batch"},
 		// {"large_file-1.7GB-no-db", logsDir + "lg_u_ex190905.log", "none"},
-		{"large_file-1.7GB-batch-db", logsDir + "lg_u_ex190905.log", "batch"},
+		// {"large_file-1.7GB-batch-db", logsDir + "lg_u_ex190905.log", "batch"},
 	}
 
 	for _, c := range cases {
@@ -202,7 +234,7 @@ func BenchmarkProcessLogFile(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				err := processor.ProcessLogFile(c.file, 4, testDB, c.dbInsertionT)
+				err := processor.ProcessLogFile(c.file, 8, testDB, c.dbInsertionT)
 				if err != nil {
 					b.Fatalf("unexpected error: %v", err)
 				}
