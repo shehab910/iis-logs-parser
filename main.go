@@ -5,12 +5,23 @@ import (
 	"iis-logs-parser/parser"
 	"iis-logs-parser/processor"
 	"os"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
+
+// GormWriter implements the gormlogger.GormWriter interface for zerolog
+type GormWriter struct {
+	Logger *zerolog.Logger
+}
+
+func (w GormWriter) Printf(format string, args ...interface{}) {
+	w.Logger.Debug().Msgf(format, args...)
+}
 
 func init() {
 	// Configure zerolog
@@ -41,7 +52,17 @@ func main() {
 	dsn := dbConfig.DSN()
 	log.Info().Msgf("Connecting to database: %s", dbConfig.NoPassDSN())
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.New(
+			// Redirect GORM logs to zerolog
+			GormWriter{Logger: &log.Logger},
+			logger.Config{
+				SlowThreshold: 1 * time.Second, // Set threshold to 1 second
+				LogLevel:      logger.Warn,
+				Colorful:      false,
+			},
+		),
+	})
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
