@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"iis-logs-parser/parser"
+	"iis-logs-parser/utils"
 	"os"
 	"sync"
 	"time"
@@ -48,62 +49,43 @@ func (m *Metrics) LogMetrics(operation string) {
 		Msg("Operation metrics")
 }
 
-func combineBatchInsert(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB) {
+func combineBatchInsert(
+	wgCombiner *sync.WaitGroup,
+	results <-chan *parser.LogEntry,
+	db *gorm.DB,
+	writer *utils.SyncWriter, // Add this parameter
+) {
 	defer wgCombiner.Done()
-
 	metrics := &Metrics{StartTime: time.Now()}
 	defer metrics.LogMetrics("batch_insert")
 
-	outputFile, err := os.Create("parsed_logs.txt")
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create output file")
-	}
-	defer outputFile.Close()
-
-	bufferedWriter := bufio.NewWriter(outputFile)
-	defer func() {
-		// Flush any remaining buffered data to the file.
-		if err := bufferedWriter.Flush(); err != nil {
-			log.Error().Err(err).Msg("Failed to flush buffered data to output file")
-		}
-	}()
-
-	entriesBatchSize := 3000
+	entriesBatchSize := 1000
 	entriesBatch := make([]*parser.LogEntry, 0, entriesBatchSize)
 
 	for entry := range results {
 		metrics.TotalRecords++
 
-		if _, err := bufferedWriter.WriteString(entry.String()); err != nil {
+		// Write to file using synchronized writer
+		if err := writer.WriteString(entry.String()); err != nil {
 			metrics.FailedWrites++
-			log.Error().
-				Err(err).
-				Str("entry", entry.String()).
-				Msg("Failed to write to output file")
+			log.Error().Err(err).Msg("Failed to write to output file")
 			continue
 		}
 
 		entriesBatch = append(entriesBatch, entry)
-
 		if len(entriesBatch) >= entriesBatchSize {
 			if err := insertBatch(db, entriesBatch, metrics); err != nil {
-				log.Error().
-					Err(err).
-					Int("batch_size", len(entriesBatch)).
-					Msg("Batch insertion failed")
+				log.Error().Err(err).Msg("Batch insertion failed")
 			}
 			metrics.BatchCount++
 			entriesBatch = entriesBatch[:0]
 		}
 	}
 
-	// Handle remaining entries
+	// Final batch insert
 	if len(entriesBatch) > 0 {
 		if err := insertBatch(db, entriesBatch, metrics); err != nil {
-			log.Error().
-				Err(err).
-				Int("batch_size", len(entriesBatch)).
-				Msg("Final batch insertion failed")
+			log.Error().Err(err).Msg("Final batch insertion failed")
 		}
 		metrics.BatchCount++
 	}
@@ -140,30 +122,16 @@ func insertBatch(db *gorm.DB, batch []*parser.LogEntry, metrics *Metrics) error 
 	return nil
 }
 
-func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry) {
+func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, writer *utils.SyncWriter) {
 	defer wgCombiner.Done()
 
 	metrics := &Metrics{StartTime: time.Now()}
 	defer metrics.LogMetrics("no_db_processing")
 
-	outputFile, err := os.Create("parsed_logs.txt")
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create output file")
-	}
-	defer outputFile.Close()
-
-	bufferedWriter := bufio.NewWriter(outputFile)
-	defer func() {
-		// Flush any remaining buffered data to the file.
-		if err := bufferedWriter.Flush(); err != nil {
-			log.Error().Err(err).Msg("Failed to flush buffered data to output file")
-		}
-	}()
-
 	for entry := range results {
 		metrics.TotalRecords++
 
-		if _, err := bufferedWriter.WriteString(entry.String()); err != nil {
+		if err := writer.WriteString(entry.String()); err != nil {
 			metrics.FailedWrites++
 			log.Error().
 				Err(err).
@@ -175,12 +143,18 @@ func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry) {
 	}
 }
 
-func combinerBuilder(dbInsertionT string, wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, db *gorm.DB) func() {
+func combinerBuilder(
+	dbInsertionT string,
+	wgCombiner *sync.WaitGroup,
+	results <-chan *parser.LogEntry,
+	db *gorm.DB,
+	writer *utils.SyncWriter,
+) func() {
 	switch dbInsertionT {
 	case "batch":
-		return func() { combineBatchInsert(wgCombiner, results, db) }
+		return func() { combineBatchInsert(wgCombiner, results, db, writer) }
 	case "none":
-		return func() { combineNoDB(wgCombiner, results) }
+		return func() { combineNoDB(wgCombiner, results, writer) }
 	default:
 		log.Fatal().Msg("Invalid combiner type, must be one of 'batch', or 'none'")
 		return func() {}
@@ -222,10 +196,20 @@ func ProcessLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT s
 		}(i)
 	}
 
+	outputFile, err := os.Create("parsed_logs.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outputFile.Close()
+	syncWriter := utils.NewSyncWriter(outputFile)
+	defer syncWriter.Flush()
+
 	// Combiner - Fan-in - Merge
-	wgCombiner.Add(1)
-	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, db)
-	go combine()
+	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, db, syncWriter)
+	for i := 0; i < (numWorkers / 2); i++ {
+		wgCombiner.Add(1)
+		go combine()
+	}
 
 	go func() {
 		for err := range errorsChan {

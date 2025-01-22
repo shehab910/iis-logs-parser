@@ -15,6 +15,30 @@ import (
 	tableStr "iis-logs-parser/table_string"
 )
 
+type SyncWriter struct {
+	mu     sync.Mutex
+	writer *bufio.Writer
+}
+
+func NewSyncWriter(file *os.File) *SyncWriter {
+	return &SyncWriter{
+		writer: bufio.NewWriter(file),
+	}
+}
+
+func (sw *SyncWriter) WriteString(s string) error {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	_, err := sw.writer.WriteString(s)
+	return err
+}
+
+func (sw *SyncWriter) Flush() error {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.writer.Flush()
+}
+
 func MapToTableLogMsg(mp *map[string]int64) (string, error) {
 	rows := [][]string{}
 	for k, v := range *mp {
@@ -157,11 +181,11 @@ func CompareUnsortedFiles(file1, file2 *os.File) (bool, error) {
 	if len(file1Lines) != len(file2Lines) {
 		return false, nil
 	}
-	
+
 	sort.Slice(file1Lines, func(i, j int) bool {
 		return file1Lines[i] < file1Lines[j]
 	})
-	
+
 	sort.Slice(file2Lines, func(i, j int) bool {
 		return file2Lines[i] < file2Lines[j]
 	})
@@ -174,4 +198,3 @@ func CompareUnsortedFiles(file1, file2 *os.File) (bool, error) {
 
 	return true, nil
 }
-
