@@ -213,5 +213,11 @@ ProcessLogFile/below_lg_file-433MB-batch-db-12              127.8M ±  ∞ ¹   
 geomean                                                     11.52M           14.01M         +21.65%                    14.02M        +21.74%                   11.74M         +1.99%
 ¹ need >= 6 samples for confidence interval at level 0.95
 ```
+I have no other optimizations in mind so i measured how much time it takes to parse the large file (1.7GB) using the time command
+```txt
+time ./main lg_u_ex190905.log 
 
-
+real    1m57.234s
+user    3m51.666s
+sys     1m14.760s
+```
