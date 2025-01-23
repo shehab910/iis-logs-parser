@@ -29,12 +29,27 @@ func init() {
 }
 
 type Metrics struct {
-	TotalRecords     int64
-	SuccessfulWrites int64
-	FailedWrites     int64
-	StartTime        time.Time
-	BatchCount       int64 // For batch operations
-	LastError        error
+	mu                 sync.Mutex
+	TotalRecords       int64
+	SuccessfulWrites   int64
+	FailedWrites       int64
+	StartTime          time.Time
+	BatchCount         int64 // For batch operations
+	LastError          error
+	TotalParsingTime   time.Duration
+	TotalInsertionTime time.Duration
+}
+
+func (m *Metrics) AddParsingTime(duration time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.TotalParsingTime += duration
+}
+
+func (m *Metrics) AddInsertionTime(duration time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.TotalInsertionTime += duration
 }
 
 func (m *Metrics) LogMetrics(operation string) {
@@ -56,10 +71,11 @@ func combineBatchInsert(
 	wgCombiner *sync.WaitGroup,
 	results <-chan *parser.LogEntry,
 	dbPool *pgxpool.Pool,
-	writer *utils.SyncWriter, // Add this parameter
+	writer *utils.SyncWriter,
+	metrics *Metrics,
 ) {
+	startTime := time.Now()
 	defer wgCombiner.Done()
-	metrics := &Metrics{StartTime: time.Now()}
 	defer metrics.LogMetrics("batch_insert")
 
 	entriesBatchSize := 1000
@@ -92,11 +108,11 @@ func combineBatchInsert(
 		}
 		atomic.AddInt64(&metrics.BatchCount, 1)
 	}
+	metrics.AddInsertionTime(time.Since(startTime))
 }
 
 func insertBatch(dbPool *pgxpool.Pool, batch []*parser.LogEntry, metrics *Metrics) error {
 	startTime := time.Now()
-
 	tx, err := dbPool.Begin(context.Background())
 	if err != nil {
 		return err
@@ -142,7 +158,7 @@ func insertBatch(dbPool *pgxpool.Pool, batch []*parser.LogEntry, metrics *Metric
 
 	log.Debug().
 		Int("batch_size", len(batch)).
-		Dur("duration", time.Since(startTime)).
+		Dur("batch insertion duration", time.Since(startTime)).
 		Msg("Batch inserted successfully")
 
 	return nil
@@ -175,10 +191,11 @@ func combinerBuilder(
 	results <-chan *parser.LogEntry,
 	dbPool *pgxpool.Pool,
 	writer *utils.SyncWriter,
+	metrics *Metrics,
 ) func() {
 	switch dbInsertionT {
 	case "batch":
-		return func() { combineBatchInsert(wgCombiner, results, dbPool, writer) }
+		return func() { combineBatchInsert(wgCombiner, results, dbPool, writer, metrics) }
 	case "none":
 		return func() { combineNoDB(wgCombiner, results, writer) }
 	default:
@@ -188,7 +205,7 @@ func combinerBuilder(
 }
 
 func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbInsertionT string) error {
-	startTime := time.Now()
+	metrics := &Metrics{StartTime: time.Now()}
 
 	file, err := os.Open(filename)
 	if err != nil {
@@ -208,6 +225,7 @@ func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbIns
 	for i := 0; i < numWorkers; i++ {
 		wgWorkers.Add(1)
 		go func(id int) {
+			startTime := time.Now()
 			defer wgWorkers.Done()
 			for line := range lines {
 				entry, err := parser.ParseLogLine(line)
@@ -219,6 +237,7 @@ func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbIns
 					results <- entry
 				}
 			}
+			metrics.AddParsingTime(time.Since(startTime))
 		}(i)
 	}
 
@@ -231,7 +250,7 @@ func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbIns
 	defer syncWriter.Flush()
 
 	// Combiner - Fan-in - Merge
-	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, dbPool, syncWriter)
+	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, dbPool, syncWriter, metrics)
 	for i := 0; i < (numWorkers / 2); i++ {
 		wgCombiner.Add(1)
 		go combine()
@@ -274,7 +293,7 @@ func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbIns
 	// Wait
 	<-done
 
-	duration := time.Since(startTime)
+	duration := time.Since(metrics.StartTime)
 	log.Info().
 		Int("total_lines", lineCount).
 		Float64("duration_seconds", duration.Seconds()).
