@@ -1,21 +1,23 @@
 package tests
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	db "iis-logs-parser/database"
 	"iis-logs-parser/parser"
 	"iis-logs-parser/processor"
 	"iis-logs-parser/utils"
 
+	pgxZerolog "github.com/jackc/pgx-zerolog"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func init() {
@@ -32,7 +34,7 @@ func (w Writer) Printf(format string, args ...interface{}) {
 }
 
 // setupTestDB creates a test database connection and returns cleanup function
-func setupTestDB(t testing.TB) (*gorm.DB, func()) {
+func setupTestDB() (*pgxpool.Pool, func()) {
 
 	dbConfig := &db.DBConfig{
 		Host:     "localhost",
@@ -42,34 +44,34 @@ func setupTestDB(t testing.TB) (*gorm.DB, func()) {
 		DBName:   "postgres-dev",
 	}
 
-	// Create a custom logger
-	customLogger := logger.New(
-		// Redirect GORM logs to zerolog
-		Writer{Logger: &log.Logger},
-		logger.Config{
-			SlowThreshold: 1 * time.Second, // Set threshold to 1 second
-			LogLevel:      logger.Warn,
-			Colorful:      false,
-		},
-	)
-
-	testDB, err := gorm.Open(postgres.Open(dbConfig.DSN()), &gorm.Config{
-		Logger: customLogger,
-	})
+	pgxConfig, err := pgxpool.ParseConfig(dbConfig.DSN())
 	if err != nil {
-		t.Fatalf("failed to connect to database: %v", err)
+		log.Fatal().Err(err).Msg("Failed to parse connection string")
 	}
+
+	logger := pgxZerolog.NewLogger(log.Logger)
+
+	pgxConfig.ConnConfig.Tracer = &tracelog.TraceLog{
+		Logger:   logger,
+		LogLevel: tracelog.LogLevelTrace,
+	}
+
+	dbPool, err := pgxpool.NewWithConfig(context.Background(), pgxConfig)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			log.Fatal().Err(err).Msg("Unable to create connection pool\n")
+		}
+	}
+
 	cleanup := func() {
-		testDB.Exec("DROP TABLE IF EXISTS log_entries")
+		dbPool.Exec(context.Background(), "DROP TABLE IF EXISTS log_entries")
 	}
 	cleanup()
 
-	err = testDB.AutoMigrate(&parser.LogEntry{})
-	if err != nil {
-		t.Fatalf("failed to migrate db: %v", err)
-	}
+	dbPool.Exec(context.Background(), "CREATE TABLE IF NOT EXISTS log_entries (ID INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,date DATE, time TIME, server_ip TEXT, method TEXT, uri_stem TEXT, uri_query TEXT, port TEXT, username TEXT, client_ip TEXT, user_agent TEXT, status TEXT, sub_status TEXT, win32_status TEXT, time_taken TEXT)")
 
-	return testDB, cleanup
+	return dbPool, cleanup
 }
 
 // Helper function to create test log file
@@ -94,7 +96,7 @@ func createTestLogFile(t testing.TB, testCase CaseType) (string, []*parser.LogEn
 	}
 }
 
-func testProcessLogFileBase(t *testing.T, db *gorm.DB, dbInsertionT string) []*parser.LogEntry {
+func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string) []*parser.LogEntry {
 	fileName, expected, cleanup := createTestLogFile(t, ParseCorrectLines)
 	defer cleanup()
 
@@ -145,43 +147,28 @@ func testProcessLogFileBase(t *testing.T, db *gorm.DB, dbInsertionT string) []*p
 }
 
 func testProcessLogFileBaseWithDB(t *testing.T, dbInsertionT string) {
-	testDB, cleanup := setupTestDB(t)
-	defer cleanup()
-	expected := testProcessLogFileBase(t, testDB, dbInsertionT)
+	testDBPool, _ := setupTestDB()
+	// defer cleanup()
+	expected := testProcessLogFileBase(t, testDBPool, dbInsertionT)
 
 	var count int64
-	if err := testDB.Model(&parser.LogEntry{}).Count(&count).Error; err != nil {
-		t.Fatalf("failed to count entries: %v", err)
-	}
+	testDBPool.QueryRow(context.Background(), "SELECT COUNT(*) FROM log_entries").Scan(&count)
 
 	if count != int64(len(expected)) {
 		t.Fatalf("expected %d entries in DB, got %d", len(expected), count)
 	}
 
-	var entries []parser.LogEntry
-	if err := testDB.Find(&entries).Error; err != nil {
-		t.Fatalf("failed to find entries: %v", err)
+	for i, entry := range expected {
+		var count int64
+		testDBPool.QueryRow(context.Background(), "SELECT COUNT(*) FROM log_entries WHERE date = $1 AND time = $2 AND server_ip = $3 AND method = $4 AND uri_stem = $5 AND uri_query = $6 AND port = $7 AND username = $8 AND client_ip = $9 AND user_agent = $10 AND status = $11 AND sub_status = $12 AND win32_status = $13 AND time_taken = $14",
+			entry.Date, entry.Time, entry.ServerIP, entry.Method, entry.URIStem, entry.URIQuery, entry.Port, entry.Username, entry.ClientIP, entry.UserAgent, entry.Status, entry.SubStatus, entry.Win32Status, entry.TimeTaken).Scan(&count)
+
+		if count != 1 {
+			t.Fatalf("expected 1 entry in DB for entry %d, got %d", i, count)
+		}
 	}
 
-	for _, entry := range entries {
-
-		found := false
-		for _, exp := range expected {
-			// Ignoring db fields
-			entry.Model.ID = 0
-			entry.Model.CreatedAt = exp.Model.CreatedAt
-			entry.Model.UpdatedAt = exp.Model.UpdatedAt
-			entry.Model.DeletedAt = exp.Model.DeletedAt
-			if entry == *exp {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("expected %+v to be found in expected list %+v", entry, expected)
-		}
-
-	}
+	testDBPool.Close()
 }
 
 func TestParseLogLine(t *testing.T) {
@@ -229,7 +216,7 @@ func BenchmarkProcessLogFile(b *testing.B) {
 	for _, c := range cases {
 		// Run a sub-benchmark for each case
 		b.Run(c.name, func(b *testing.B) {
-			testDB, cleanup := setupTestDB(b)
+			testDB, cleanup := setupTestDB()
 			defer cleanup()
 
 			b.ResetTimer()

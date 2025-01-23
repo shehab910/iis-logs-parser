@@ -1,27 +1,19 @@
 package main
 
 import (
+	"context"
+	"errors"
 	db "iis-logs-parser/database"
-	"iis-logs-parser/parser"
 	"iis-logs-parser/processor"
 	"os"
-	"time"
 
+	pgxZerolog "github.com/jackc/pgx-zerolog"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
-
-// GormWriter implements the gormlogger.GormWriter interface for zerolog
-type GormWriter struct {
-	Logger *zerolog.Logger
-}
-
-func (w GormWriter) Printf(format string, args ...interface{}) {
-	w.Logger.Debug().Msgf(format, args...)
-}
 
 func init() {
 	// Configure zerolog
@@ -49,28 +41,33 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load database config")
 	}
 
-	dsn := dbConfig.DSN()
 	log.Info().Msgf("Connecting to database: %s", dbConfig.NoPassDSN())
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.New(
-			// Redirect GORM logs to zerolog
-			GormWriter{Logger: &log.Logger},
-			logger.Config{
-				SlowThreshold: 1 * time.Second, // Set threshold to 1 second
-				LogLevel:      logger.Warn,
-				Colorful:      false,
-			},
-		),
-	})
+	pgxConfig, err := pgxpool.ParseConfig(dbConfig.DSN())
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to database")
+		log.Fatal().Err(err).Msg("Failed to parse connection string")
 	}
-	db.AutoMigrate(&parser.LogEntry{})
+
+	logger := pgxZerolog.NewLogger(log.Logger)
+
+	pgxConfig.ConnConfig.Tracer = &tracelog.TraceLog{
+		Logger:   logger,
+		LogLevel: tracelog.LogLevelTrace,
+	}
+
+	dbPool, err := pgxpool.NewWithConfig(context.Background(), pgxConfig)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			log.Fatal().Err(err).Msg("Unable to create connection pool\n")
+		}
+	}
+	defer dbPool.Close()
 
 	log.Info().Msg("Connected to database")
 
-	err = processor.ProcessLogFile(filename, numWorkers, db, "batch")
+	dbPool.Exec(context.Background(), "CREATE TABLE IF NOT EXISTS log_entries (ID INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,date DATE, time TIME, server_ip TEXT, method TEXT, uri_stem TEXT, uri_query TEXT, port TEXT, username TEXT, client_ip TEXT, user_agent TEXT, status TEXT, sub_status TEXT, win32_status TEXT, time_taken TEXT)")
+
+	err = processor.ProcessLogFile(filename, numWorkers, dbPool, "batch")
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to process log file")
 	}

@@ -2,6 +2,7 @@ package processor
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"iis-logs-parser/parser"
 	"iis-logs-parser/utils"
@@ -10,9 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
 )
 
 func init() {
@@ -53,7 +55,7 @@ func (m *Metrics) LogMetrics(operation string) {
 func combineBatchInsert(
 	wgCombiner *sync.WaitGroup,
 	results <-chan *parser.LogEntry,
-	db *gorm.DB,
+	dbPool *pgxpool.Pool,
 	writer *utils.SyncWriter, // Add this parameter
 ) {
 	defer wgCombiner.Done()
@@ -75,7 +77,7 @@ func combineBatchInsert(
 
 		entriesBatch = append(entriesBatch, entry)
 		if len(entriesBatch) >= entriesBatchSize {
-			if err := insertBatch(db, entriesBatch, metrics); err != nil {
+			if err := insertBatch(dbPool, entriesBatch, metrics); err != nil {
 				log.Error().Err(err).Msg("Batch insertion failed")
 			}
 			atomic.AddInt64(&metrics.BatchCount, 1)
@@ -85,35 +87,58 @@ func combineBatchInsert(
 
 	// Final batch insert
 	if len(entriesBatch) > 0 {
-		if err := insertBatch(db, entriesBatch, metrics); err != nil {
+		if err := insertBatch(dbPool, entriesBatch, metrics); err != nil {
 			log.Error().Err(err).Msg("Final batch insertion failed")
 		}
 		atomic.AddInt64(&metrics.BatchCount, 1)
 	}
 }
 
-func insertBatch(db *gorm.DB, batch []*parser.LogEntry, metrics *Metrics) error {
+func insertBatch(dbPool *pgxpool.Pool, batch []*parser.LogEntry, metrics *Metrics) error {
 	startTime := time.Now()
 
-	tx := db.Begin()
-	if tx.Error != nil {
-		return tx.Error
-	}
-
-	if err := tx.Create(&batch).Error; err != nil {
-		tx.Rollback()
-		atomic.AddInt64(&metrics.FailedWrites, int64(len(batch)))
-		metrics.LastError = err
+	tx, err := dbPool.Begin(context.Background())
+	if err != nil {
 		return err
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	count, err := tx.CopyFrom(
+		context.Background(),
+		pgx.Identifier{"log_entries"},
+		[]string{"date", "time", "server_ip", "method", "uri_stem", "uri_query", "port", "username", "client_ip", "user_agent", "status", "sub_status", "win32_status", "time_taken"},
+		pgx.CopyFromSlice(len(batch), func(i int) ([]interface{}, error) {
+			return []interface{}{
+				batch[i].Date,
+				batch[i].Time,
+				batch[i].ServerIP,
+				batch[i].Method,
+				batch[i].URIStem,
+				batch[i].URIQuery,
+				batch[i].Port,
+				batch[i].Username,
+				batch[i].ClientIP,
+				batch[i].UserAgent,
+				batch[i].Status,
+				batch[i].SubStatus,
+				batch[i].Win32Status,
+				batch[i].TimeTaken,
+			}, nil
+		},
+		))
+
+	if err != nil {
 		atomic.AddInt64(&metrics.FailedWrites, int64(len(batch)))
 		metrics.LastError = err
+		tx.Rollback(context.Background())
 		return err
 	}
 
-	atomic.AddInt64(&metrics.SuccessfulWrites, int64(len(batch)))
+	if err := tx.Commit(context.Background()); err != nil {
+		atomic.AddInt64(&metrics.FailedWrites, int64(len(batch)))
+		metrics.LastError = err
+	}
+
+	atomic.AddInt64(&metrics.SuccessfulWrites, count)
 
 	log.Debug().
 		Int("batch_size", len(batch)).
@@ -148,12 +173,12 @@ func combinerBuilder(
 	dbInsertionT string,
 	wgCombiner *sync.WaitGroup,
 	results <-chan *parser.LogEntry,
-	db *gorm.DB,
+	dbPool *pgxpool.Pool,
 	writer *utils.SyncWriter,
 ) func() {
 	switch dbInsertionT {
 	case "batch":
-		return func() { combineBatchInsert(wgCombiner, results, db, writer) }
+		return func() { combineBatchInsert(wgCombiner, results, dbPool, writer) }
 	case "none":
 		return func() { combineNoDB(wgCombiner, results, writer) }
 	default:
@@ -162,7 +187,7 @@ func combinerBuilder(
 	}
 }
 
-func ProcessLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT string) error {
+func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbInsertionT string) error {
 	startTime := time.Now()
 
 	file, err := os.Open(filename)
@@ -206,7 +231,7 @@ func ProcessLogFile(filename string, numWorkers int, db *gorm.DB, dbInsertionT s
 	defer syncWriter.Flush()
 
 	// Combiner - Fan-in - Merge
-	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, db, syncWriter)
+	combine := combinerBuilder(dbInsertionT, &wgCombiner, results, dbPool, syncWriter)
 	for i := 0; i < (numWorkers / 2); i++ {
 		wgCombiner.Add(1)
 		go combine()
