@@ -274,3 +274,39 @@ real    0m36.761s
 user    2m1.263s
 sys     0m36.741s
 ```
+
+### Retuning the batch size
+I have tried to retune the batch size for the `pgx` & `COPY` approach
+and found that 10k is somewhat a sweet spot
+from 1k to 10k we see a very good bump in overall performance
+from 10k to 50k it is negligible
+```txt
+~/go/bin/benchstat batch-n-combiners-bs1k-pgx.txt batch-n-combiners-bs10k-pgx.txt batch-n-combiners-bs50k-pgx.txt
+goos: linux
+goarch: amd64
+pkg: iis-logs-parser/tests
+cpu: 13th Gen Intel(R) Core(TM) i7-1355U
+                                               │ batch-n-combiners-bs1k-pgx.txt │   batch-n-combiners-bs10k-pgx.txt   │   batch-n-combiners-bs50k-pgx.txt   │
+                                               │             sec/op             │    sec/op     vs base               │    sec/op     vs base               │
+ProcessLogFile/below_md_file-17MB-batch-db-12                      393.3m ± 65%   310.2m ± 38%        ~ (p=0.097 n=7)   315.3m ± 11%  -19.85% (p=0.011 n=7)
+ProcessLogFile/medium_file-29MB-batch-db-12                        524.1m ± 34%   344.2m ± 82%  -34.32% (p=0.011 n=7)   326.0m ± 76%  -37.79% (p=0.007 n=7)
+ProcessLogFile/below_lg_file-433MB-batch-db-12                      9.095 ± 50%    4.773 ±  6%  -47.52% (p=0.001 n=7)    4.672 ±  5%  -48.64% (p=0.001 n=7)
+ProcessLogFile/large_file-1.7GB-batch-db-12                         35.17 ±  7%    19.73 ± 10%  -43.91% (p=0.001 n=7)    20.07 ±  3%  -42.95% (p=0.001 n=7)
+geomean                                                             2.850          1.781        -37.51%                  1.762        -38.17%
+
+                                               │ batch-n-combiners-bs1k-pgx.txt │   batch-n-combiners-bs10k-pgx.txt    │   batch-n-combiners-bs50k-pgx.txt    │
+                                               │              B/op              │     B/op       vs base               │     B/op       vs base               │
+ProcessLogFile/below_md_file-17MB-batch-db-12                    183.3Mi ±   0%   164.2Mi ±  0%  -10.41% (p=0.001 n=7)   164.0Mi ±  0%  -10.52% (p=0.001 n=7)
+ProcessLogFile/medium_file-29MB-batch-db-12                      174.8Mi ± 110%   172.4Mi ± 90%   -1.34% (p=0.007 n=7)   173.4Mi ± 88%   -0.80% (p=0.007 n=7)
+ProcessLogFile/below_lg_file-433MB-batch-db-12                   2.558Gi ±   0%   2.520Gi ±  0%   -1.51% (p=0.001 n=7)   2.517Gi ±  0%   -1.62% (p=0.001 n=7)
+ProcessLogFile/large_file-1.7GB-batch-db-12                      10.23Gi ±   0%   10.08Gi ±  0%   -1.52% (p=0.001 n=7)   10.06Gi ±  0%   -1.67% (p=0.001 n=7)
+geomean                                                          968.4Mi          931.9Mi         -3.77%                 932.2Mi         -3.74%
+
+                                               │ batch-n-combiners-bs1k-pgx.txt │   batch-n-combiners-bs10k-pgx.txt   │   batch-n-combiners-bs50k-pgx.txt   │
+                                               │           allocs/op            │   allocs/op    vs base              │   allocs/op    vs base              │
+ProcessLogFile/below_md_file-17MB-batch-db-12                     4.084M ±   0%   4.076M ±   0%  -0.19% (p=0.001 n=7)   4.075M ±   0%  -0.21% (p=0.001 n=7)
+ProcessLogFile/medium_file-29MB-batch-db-12                       2.479M ± 229%   2.460M ± 231%  -0.74% (p=0.006 n=7)   2.459M ± 232%  -0.82% (p=0.006 n=7)
+ProcessLogFile/below_lg_file-433MB-batch-db-12                    37.18M ±   0%   36.90M ±   0%  -0.75% (p=0.001 n=7)   36.87M ±   0%  -0.82% (p=0.001 n=7)
+ProcessLogFile/large_file-1.7GB-batch-db-12                       148.7M ±   0%   147.6M ±   0%  -0.75% (p=0.001 n=7)   147.5M ±   0%  -0.83% (p=0.001 n=7)
+geomean                                                           15.38M          15.29M         -0.61%                 15.28M         -0.67%
+```

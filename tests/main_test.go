@@ -203,14 +203,14 @@ func BenchmarkProcessLogFile(b *testing.B) {
 	}{
 		// {"mini_file-1.7MB-no-db", logsDir + "mini_u_ex190905.log", "none"},
 		// {"mini_file-1.7MB-batch-db", logsDir + "mini_u_ex190905.log", "batch"},
-		{"below_md_file-17MB-no-db", logsDir + "below_med_u_ex190905.log", "none"},
+		// {"below_md_file-17MB-no-db", logsDir + "below_med_u_ex190905.log", "none"},
 		{"below_md_file-17MB-batch-db", logsDir + "below_med_u_ex190905.log", "batch"},
-		{"medium_file-29MB-no-db", logsDir + "u_ex190905.log", "none"},
+		// {"medium_file-29MB-no-db", logsDir + "u_ex190905.log", "none"},
 		{"medium_file-29MB-batch-db", logsDir + "u_ex190905.log", "batch"},
-		{"below_lg_file-433MB-no-db", logsDir + "below_lg_u_ex190905.log", "none"},
+		// {"below_lg_file-433MB-no-db", logsDir + "below_lg_u_ex190905.log", "none"},
 		{"below_lg_file-433MB-batch-db", logsDir + "below_lg_u_ex190905.log", "batch"},
 		// {"large_file-1.7GB-no-db", logsDir + "lg_u_ex190905.log", "none"},
-		// {"large_file-1.7GB-batch-db", logsDir + "lg_u_ex190905.log", "batch"},
+		{"large_file-1.7GB-batch-db", logsDir + "lg_u_ex190905.log", "batch"},
 	}
 
 	for _, c := range cases {

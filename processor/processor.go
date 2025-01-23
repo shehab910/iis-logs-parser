@@ -78,7 +78,7 @@ func combineBatchInsert(
 	defer wgCombiner.Done()
 	defer metrics.LogMetrics("batch_insert")
 
-	entriesBatchSize := 1000
+	entriesBatchSize := 10000
 	entriesBatch := make([]*parser.LogEntry, 0, entriesBatchSize)
 
 	for entry := range results {
