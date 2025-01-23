@@ -173,6 +173,8 @@ Note: My laptop is struggling with the benchmarks so samples are less than 6 for
 
 We can see a small bump in performance with the memory practically the same. So, I will go with multiple combiners
 
+# DB Related Optimizations
+
 ### Tuning the batch size
 It was surprising to see that increasing the batch size is worse for performance.
 ```txt
@@ -220,4 +222,55 @@ time ./main lg_u_ex190905.log
 real    1m57.234s
 user    3m51.666s
 sys     1m14.760s
+```
+### Using `pgx` & `COPY`
+According to your suggestion, I have used `pgx` instead of `GORM`, moreover, I used the `COPY` statement which is better for batch inserts.
+The results are MUCH better using this approach
+```txt
+goos: linux
+goarch: amd64
+pkg: iis-logs-parser/tests
+cpu: 13th Gen Intel(R) Core(TM) i7-1355U
+                                               │ all-n-combiners-bs1k.txt │     all-n-combiners-bs1k-pgx.txt      │
+                                               │          sec/op          │    sec/op     vs base                 │
+ProcessLogFile/below_md_file-17MB-no-db-12                 236.3m ± 20%     182.6m ± 23%  -22.72% (p=0.001 n=7)
+ProcessLogFile/below_md_file-17MB-batch-db-12              591.7m ± 22%     318.2m ± 34%  -46.23% (p=0.001 n=7)
+ProcessLogFile/medium_file-29MB-no-db-12                   379.5m ± 10%     307.1m ± 16%  -19.07% (p=0.001 n=7)
+ProcessLogFile/medium_file-29MB-batch-db-12               1110.5m ± 28%     433.5m ± 15%  -60.96% (p=0.001 n=7)
+ProcessLogFile/below_lg_file-433MB-no-db-12                 5.837 ±  9%      5.052 ± 13%  -13.46% (p=0.001 n=7)
+ProcessLogFile/below_lg_file-433MB-batch-db-12             18.109 ±   ∞ ¹    8.133 ± 22%  -55.09% (p=0.006 n=4+7)
+geomean                                                     1.356           826.1m        -39.10%
+¹ need >= 6 samples for confidence interval at level 0.95
+
+                                               │ all-n-combiners-bs1k.txt │      all-n-combiners-bs1k-pgx.txt      │
+                                               │           B/op           │     B/op       vs base
+     │
+ProcessLogFile/below_md_file-17MB-no-db-12                117.04Mi ± 0%     85.76Mi ±  0%  -26.72% (p=0.001 n=7)
+ProcessLogFile/below_md_file-17MB-batch-db-12              592.6Mi ± 0%     183.1Mi ± 52%  -69.10% (p=0.001 n=7)
+ProcessLogFile/medium_file-29MB-no-db-12                   233.8Mi ± 0%     172.1Mi ±  0%  -26.41% (p=0.001 n=7)
+ProcessLogFile/medium_file-29MB-batch-db-12               1186.7Mi ± 0%     174.7Mi ±  0%  -85.28% (p=0.001 n=7)
+ProcessLogFile/below_lg_file-433MB-no-db-12                3.424Gi ± 0%     2.520Gi ±  0%  -26.39% (p=0.001 n=7)
+ProcessLogFile/below_lg_file-433MB-batch-db-12            17.370Gi ±  ∞ ¹   2.558Gi ±  0%  -85.27% (p=0.006 n=4+7)
+geomean                                                    1.007Gi          383.7Mi        -62.78%
+¹ need >= 6 samples for confidence interval at level 0.95
+
+                                               │ all-n-combiners-bs1k.txt │     all-n-combiners-bs1k-pgx.txt      │
+                                               │        allocs/op         │  allocs/op    vs base
+    │
+ProcessLogFile/below_md_file-17MB-no-db-12                  1.878M ± 0%     1.230M ±  0%  -34.51% (p=0.001 n=7)
+ProcessLogFile/below_md_file-17MB-batch-db-12               4.796M ± 0%     4.083M ± 70%  -14.86% (p=0.001 n=7)
+ProcessLogFile/medium_file-29MB-no-db-12                    3.752M ± 0%     2.459M ±  0%  -34.45% (p=0.001 n=7)
+ProcessLogFile/medium_file-29MB-batch-db-12                 9.591M ± 0%     2.479M ±  0%  -74.16% (p=0.001 n=7)
+ProcessLogFile/below_lg_file-433MB-no-db-12                 56.28M ± 0%     36.89M ±  0%  -34.44% (p=0.001 n=7)
+ProcessLogFile/below_lg_file-433MB-batch-db-12             143.86M ±  ∞ ¹   37.18M ±  0%  -74.16% (p=0.006 n=4+7)
+geomean                                                     11.74M          5.896M        -49.80%
+¹ need >= 6 samples for confidence interval at level 0.95
+```
+The time it takes to parse the large file (1.7GB) using the time command
+```txt
+time ./main lg_u_ex190905.log
+
+real    0m36.761s
+user    2m1.263s
+sys     0m36.741s
 ```
