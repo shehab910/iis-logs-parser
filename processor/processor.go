@@ -241,7 +241,7 @@ func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbIns
 		}(i)
 	}
 
-	outputFile, err := os.Create("parsed_logs.txt")
+	outputFile, err := os.Create(filename + "_" + "parsed_logs.txt")
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
