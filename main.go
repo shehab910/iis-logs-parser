@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	db "iis-logs-parser/database"
-	gormzerolog "iis-logs-parser/gorm-zerolog"
 	"iis-logs-parser/models"
-	"iis-logs-parser/parser"
 	"iis-logs-parser/processor"
-	"net/http"
+	"iis-logs-parser/routes"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,8 +20,6 @@ import (
 	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 func init() {
@@ -123,28 +119,7 @@ func main() {
 		os.Mkdir("uploaded_logs", 0755)
 	}
 
-	dbConfig, err := db.LoadConfigFromEnv()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load database config")
-	}
-
-	dsn := dbConfig.DSN()
-	log.Info().Msgf("DB-GORM: Connecting to database: %s", dbConfig.NoPassDSN())
-	gormDb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: gormzerolog.Logger{},
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("DB-GORM: Failed to connect to database")
-	}
-	log.Info().Msg("DB-GORM: Connected to database")
-
-	err = errors.Join(
-		gormDb.AutoMigrate(&parser.LogEntry{}),
-		gormDb.AutoMigrate(&models.LogFile{}),
-	)
-	if err != nil {
-		log.Fatal().Err(err).Msg("DB-GORM: Failed to migrate database")
-	}
+	db.InitGormDB()
 
 	var scheduleNext func() // Declare a function variable for self-referencing
 
@@ -161,50 +136,6 @@ func main() {
 	scheduleNext()
 
 	r := gin.Default()
-	r.POST("/upload-logs", func(c *gin.Context) {
-		log.Info().Msg("Trying to get file")
-		file, err := c.FormFile("logfile")
-
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to get file")
-			c.JSON(400, gin.H{
-				"message": "No file uploaded",
-			})
-		}
-		log.Info().Msg("File uploaded")
-
-		filename := filepath.Base(file.Filename)
-
-		logFileEntry := models.LogFile{
-			Name:   filename,
-			Size:   uint(file.Size),
-			Status: models.StatusPending,
-		}
-
-		res := gormDb.Create(&logFileEntry)
-
-		if res.Error != nil {
-			log.Err(res.Error).Msg("Couldn't create log file entry in db")
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Couldn't save db entry",
-			})
-			return
-		}
-
-		err = c.SaveUploadedFile(file, filepath.Join("uploaded_logs", filename+"-"+strconv.FormatUint(uint64(logFileEntry.ID), 10)))
-		if err != nil {
-			log.Err(err).Msg("Couldn't save file")
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Couldn't save file",
-			})
-			return
-		}
-		log.Info().Msg("File Saved")
-
-		c.JSON(http.StatusCreated, gin.H{
-			"message": "File uploaded & saved",
-			"file_id": logFileEntry.ID,
-		})
-	})
+	routes.RegisterRoutes(r)
 	r.Run()
 }

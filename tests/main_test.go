@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	db "iis-logs-parser/database"
+	"iis-logs-parser/models"
 	"iis-logs-parser/parser"
 	"iis-logs-parser/processor"
 	"iis-logs-parser/utils"
@@ -75,9 +76,9 @@ func setupTestDB() (*pgxpool.Pool, func()) {
 }
 
 // Helper function to create test log file
-func createTestLogFile(t testing.TB, testCase CaseType) (string, []*parser.LogEntry, func()) {
+func createTestLogFile(t testing.TB, testCase CaseType) (string, []*models.LogEntry, func()) {
 	content := Cases[testCase].input()
-	expected := Cases[testCase].expected().([]*parser.LogEntry)
+	expected := Cases[testCase].expected().([]*models.LogEntry)
 
 	tmpfile, err := os.CreateTemp("", "logfile")
 	if err != nil {
@@ -96,7 +97,7 @@ func createTestLogFile(t testing.TB, testCase CaseType) (string, []*parser.LogEn
 	}
 }
 
-func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string) []*parser.LogEntry {
+func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string) []*models.LogEntry {
 	fileName, expected, cleanup := createTestLogFile(t, ParseCorrectLines)
 	defer cleanup()
 
@@ -105,19 +106,19 @@ func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string)
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	parsedLogsFilename := "parsed_logs.txt"
+	parsedLogsFilename := fileName + "_" + "parsed_logs.txt"
 	parsedLogsFile, err := os.Open(parsedLogsFilename)
 	if err != nil {
 		t.Fatalf("failed to open parsed logs file: %v", err)
 	}
 	defer parsedLogsFile.Close()
-	// defer os.Remove(parsedLogsFilename)
+	defer os.Remove(parsedLogsFilename)
 
 	expectedTempFile, err := os.Create(parsedLogsFilename + ".expected")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	// defer os.Remove(expectedTempFile.Name())
+	defer os.Remove(expectedTempFile.Name())
 	fmt.Println(expectedTempFile.Name())
 
 	for _, entry := range expected {
@@ -173,7 +174,7 @@ func testProcessLogFileBaseWithDB(t *testing.T, dbInsertionT string) {
 
 func TestParseLogLine(t *testing.T) {
 	line := Cases[ParseCorrectLine].input()
-	expected := Cases[ParseCorrectLine].expected().(*parser.LogEntry)
+	expected := Cases[ParseCorrectLine].expected().(*models.LogEntry)
 
 	entry, err := parser.ParseLogLine(line)
 	if err != nil {

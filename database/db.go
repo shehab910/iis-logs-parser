@@ -1,14 +1,21 @@
 package db
 
 import (
+	"errors"
 	"fmt"
+	gormzerolog "iis-logs-parser/gorm-zerolog"
+	"iis-logs-parser/models"
 	"net/url"
 	"os"
 	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog/log"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
+
+var GormDB *gorm.DB
 
 type DBConfig struct {
 	Host     string
@@ -66,4 +73,30 @@ func (c *DBConfig) DSN() string {
 
 func (c *DBConfig) NoPassDSN() string {
 	return strings.Replace(c.DSN(), url.QueryEscape(c.Password), "****", 1)
+}
+
+func InitGormDB() {
+	dbConfig, err := LoadConfigFromEnv()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to load database config")
+	}
+
+	dsn := dbConfig.DSN()
+	log.Info().Msgf("DB-GORM: Connecting to database: %s", dbConfig.NoPassDSN())
+	GormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: gormzerolog.Logger{},
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("DB-GORM: Failed to connect to database")
+	}
+	log.Info().Msg("DB-GORM: Connected to database")
+
+	err = errors.Join(
+		GormDB.AutoMigrate(&models.LogEntry{}),
+		GormDB.AutoMigrate(&models.LogFile{}),
+		GormDB.AutoMigrate(&models.User{}),
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("DB-GORM: Failed to migrate database")
+	}
 }

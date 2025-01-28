@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"iis-logs-parser/models"
 	"iis-logs-parser/parser"
 	"iis-logs-parser/utils"
 	"os"
@@ -69,7 +70,7 @@ func (m *Metrics) LogMetrics(operation string) {
 
 func combineBatchInsert(
 	wgCombiner *sync.WaitGroup,
-	results <-chan *parser.LogEntry,
+	results <-chan *models.LogEntry,
 	dbPool *pgxpool.Pool,
 	writer *utils.SyncWriter,
 	metrics *Metrics,
@@ -79,7 +80,7 @@ func combineBatchInsert(
 	defer metrics.LogMetrics("batch_insert")
 
 	entriesBatchSize := 10000
-	entriesBatch := make([]*parser.LogEntry, 0, entriesBatchSize)
+	entriesBatch := make([]*models.LogEntry, 0, entriesBatchSize)
 
 	for entry := range results {
 		atomic.AddInt64(&metrics.TotalRecords, 1)
@@ -111,7 +112,7 @@ func combineBatchInsert(
 	metrics.AddInsertionTime(time.Since(startTime))
 }
 
-func insertBatch(dbPool *pgxpool.Pool, batch []*parser.LogEntry, metrics *Metrics) error {
+func insertBatch(dbPool *pgxpool.Pool, batch []*models.LogEntry, metrics *Metrics) error {
 	startTime := time.Now()
 	tx, err := dbPool.Begin(context.Background())
 	if err != nil {
@@ -164,7 +165,7 @@ func insertBatch(dbPool *pgxpool.Pool, batch []*parser.LogEntry, metrics *Metric
 	return nil
 }
 
-func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, writer *utils.SyncWriter) {
+func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *models.LogEntry, writer *utils.SyncWriter) {
 	defer wgCombiner.Done()
 
 	metrics := &Metrics{StartTime: time.Now()}
@@ -188,7 +189,7 @@ func combineNoDB(wgCombiner *sync.WaitGroup, results <-chan *parser.LogEntry, wr
 func combinerBuilder(
 	dbInsertionT string,
 	wgCombiner *sync.WaitGroup,
-	results <-chan *parser.LogEntry,
+	results <-chan *models.LogEntry,
 	dbPool *pgxpool.Pool,
 	writer *utils.SyncWriter,
 	metrics *Metrics,
@@ -214,7 +215,7 @@ func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbIns
 	defer file.Close()
 
 	lines := make(chan string)
-	results := make(chan *parser.LogEntry)
+	results := make(chan *models.LogEntry)
 	errorsChan := make(chan error)
 	done := make(chan bool)
 

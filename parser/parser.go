@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"iis-logs-parser/models"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -13,27 +14,6 @@ const (
 
 var FIELDS_LEN = len(strings.Split(strings.Replace(FIELDS_DEF, "#Fields: ", "", 1), " "))
 
-type LogEntry struct {
-	Date        string
-	Time        string
-	ServerIP    string
-	Method      string
-	URIStem     string
-	URIQuery    string
-	Port        string
-	Username    string
-	ClientIP    string
-	UserAgent   string
-	Status      string
-	SubStatus   string
-	Win32Status string
-	TimeTaken   string
-}
-
-func (entry *LogEntry) String() string {
-	return fmt.Sprintf("%+v\n", *entry)
-}
-
 type ParseError struct {
 	Line    string
 	Message string
@@ -43,7 +23,7 @@ func (e *ParseError) Error() string {
 	return fmt.Sprintf("Parse error: %s in line: %s", e.Message, e.Line)
 }
 
-func ParseLogLine(line string) (*LogEntry, error) {
+func ParseLogLine(line string) (*models.LogEntry, error) {
 	if strings.HasPrefix(line, "#") || len(strings.TrimSpace(line)) == 0 {
 		if strings.HasPrefix(line, "#Fields:") {
 			if line != FIELDS_DEF {
@@ -62,7 +42,7 @@ func ParseLogLine(line string) (*LogEntry, error) {
 		}
 	}
 
-	entry := &LogEntry{
+	entry := &models.LogEntry{
 		Date:        fields[0],
 		Time:        fields[1],
 		ServerIP:    fields[2],

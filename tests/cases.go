@@ -1,6 +1,8 @@
 package tests
 
-import "iis-logs-parser/parser"
+import (
+	"iis-logs-parser/models"
+)
 
 type Case struct {
 	input    func() string
@@ -26,7 +28,7 @@ var Cases = map[CaseType]Case{
 			return "2023-10-10 12:00:00 192.168.1.1 GET /index.html - 80 - 192.168.1.100 Mozilla/5.0 200 0 0 123"
 		},
 		expected: func() interface{} {
-			return &parser.LogEntry{
+			return &models.LogEntry{
 				Date:        "2023-10-10",
 				Time:        "12:00:00",
 				ServerIP:    "192.168.1.1",
@@ -52,7 +54,7 @@ var Cases = map[CaseType]Case{
 2023-10-10 12:00:02 192.168.1.1 GET /contact.html - 80 - 192.168.1.102 Mozilla/5.0 500 0 0 789`
 		},
 		expected: func() interface{} {
-			return []*parser.LogEntry{
+			return []*models.LogEntry{
 				{
 					Date:        "2023-10-10",
 					Time:        "12:00:00",
