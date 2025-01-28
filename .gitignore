@@ -1,0 +1,5 @@
+*.txt
+*.log
+.vscode/
+main
+uploaded_logs/
