@@ -98,7 +98,8 @@ func processLogsCron(ctx context.Context) {
 				return nil
 			}
 
-			err = processor.ProcessLogFile(fileName, 12, dbPool, "batch")
+			savedFileName := filepath.Join("uploaded_logs", fileName+"-"+strconv.FormatUint(uint64(fileId), 10))
+			err = processor.ProcessLogFile(savedFileName, 12, dbPool, "batch")
 			if err != nil {
 				log.Err(err).Msgf("Failed to process file: %s with id: %d", fileName, fileId)
 				_, err := dbPool.Exec(ctx, "UPDATE log_files SET status = $1 WHERE id = $2", models.StatusFailed, fileId)
