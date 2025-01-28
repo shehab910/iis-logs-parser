@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -97,7 +98,7 @@ func processLogsCron(ctx context.Context) {
 				return nil
 			}
 
-			err = processor.ProcessLogFile(filepath.Join("uploaded_logs", fileName), 12, dbPool, "batch")
+			err = processor.ProcessLogFile(fileName, 12, dbPool, "batch")
 			if err != nil {
 				log.Err(err).Msgf("Failed to process file: %s with id: %d", fileName, fileId)
 				_, err := dbPool.Exec(ctx, "UPDATE log_files SET status = $1 WHERE id = $2", models.StatusFailed, fileId)
@@ -189,7 +190,7 @@ func main() {
 			return
 		}
 
-		err = c.SaveUploadedFile(file, filepath.Join("uploaded_logs", filename))
+		err = c.SaveUploadedFile(file, filepath.Join("uploaded_logs", filename+"-"+strconv.FormatUint(uint64(logFileEntry.ID), 10)))
 		if err != nil {
 			log.Err(err).Msg("Couldn't save file")
 			c.JSON(http.StatusInternalServerError, gin.H{
