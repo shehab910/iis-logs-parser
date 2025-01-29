@@ -101,7 +101,7 @@ func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string)
 	fileName, cleanup := createTestLogFile(t, testCase.logFileContent)
 	defer cleanup()
 
-	duration, startTS, endTS, err := processor.ProcessLogFile(fileName, 2, db, dbInsertionT)
+	duration, startTS, endTS, err := processor.ProcessLogFile(fileName, 2, db, dbInsertionT, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -114,7 +114,7 @@ func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string)
 		t.Fatalf("expected end timestamp %v, got %v", testCase.endTimeStamp, endTS)
 	}
 
-	if duration.Seconds() == 0 {
+	if duration == 0 {
 		t.Fatalf("expected duration to be non-zero")
 	}
 
@@ -235,7 +235,7 @@ func BenchmarkProcessLogFile(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := processor.ProcessLogFile(c.file, 8, testDB, c.dbInsertionT)
+				_, _, _, err := processor.ProcessLogFile(c.file, 8, testDB, c.dbInsertionT, 0)
 				if err != nil {
 					b.Fatalf("unexpected error: %v", err)
 				}
