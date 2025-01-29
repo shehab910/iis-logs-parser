@@ -98,7 +98,7 @@ func processLogsCron(ctx context.Context) {
 			}
 
 			savedFileName := filepath.Join("uploaded_logs", fileName+"-"+strconv.FormatUint(uint64(fileId), 10))
-			err = processor.ProcessLogFile(savedFileName, 12, dbPool, "batch")
+			parsingTime, startTimestamp, endTimestamp, err := processor.ProcessLogFile(savedFileName, 12, dbPool, "batch")
 			if err != nil {
 				log.Err(err).Msgf("Failed to process file: %s with id: %d", fileName, fileId)
 				_, err := dbPool.Exec(ctx, "UPDATE log_files SET status = $1 WHERE id = $2", models.StatusFailed, fileId)
@@ -108,7 +108,7 @@ func processLogsCron(ctx context.Context) {
 				return nil
 			}
 			log.Info().Msgf("Finished processing file: %s with id: %d", fileName, fileId)
-			_, err = dbPool.Exec(ctx, "UPDATE log_files SET status = $1 WHERE id = $2", models.StatusCompleted, fileId)
+			_, err = dbPool.Exec(ctx, "UPDATE log_files SET status = $1, start_timestamp = $2, end_timestamp = $3, parsing_time = $4 WHERE id = $5", models.StatusCompleted, startTimestamp, endTimestamp, parsingTime, fileId)
 			if err != nil {
 				log.Err(err).Msgf("Failed to update file status to completed: %s with id: %d", fileName, fileId)
 			}

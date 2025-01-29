@@ -39,6 +39,8 @@ type Metrics struct {
 	LastError          error
 	TotalParsingTime   time.Duration
 	TotalInsertionTime time.Duration
+	StartTimestamp     time.Time
+	EndTimestamp       time.Time
 }
 
 func (m *Metrics) AddParsingTime(duration time.Duration) {
@@ -51,6 +53,22 @@ func (m *Metrics) AddInsertionTime(duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.TotalInsertionTime += duration
+}
+
+func (m *Metrics) CheckAndSetTimestamps(tsDate string, tsTime string) {
+	timestamp, err := time.Parse(time.DateTime, tsDate+" "+tsTime)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to parse timestamp")
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if timestamp.Before(m.StartTimestamp) {
+		m.StartTimestamp = timestamp
+	}
+	if timestamp.After(m.EndTimestamp) {
+		m.EndTimestamp = timestamp
+	}
 }
 
 func (m *Metrics) LogMetrics(operation string) {
@@ -84,6 +102,7 @@ func combineBatchInsert(
 
 	for entry := range results {
 		atomic.AddInt64(&metrics.TotalRecords, 1)
+		metrics.CheckAndSetTimestamps(entry.Date, entry.Time)
 
 		// Write to file using synchronized writer
 		if err := writer.WriteString(entry.String()); err != nil {
@@ -205,12 +224,18 @@ func combinerBuilder(
 	}
 }
 
-func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbInsertionT string) error {
-	metrics := &Metrics{StartTime: time.Now()}
+// Returns the duration of the processing, the start and end timestamps of the log entries
+func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbInsertionT string) (time.Duration, time.Time, time.Time, error) {
+	var duration time.Duration
+	metrics := &Metrics{
+		StartTime:      time.Now(),
+		StartTimestamp: time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC),
+		EndTimestamp:   time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
 
 	file, err := os.Open(filename)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return duration, metrics.StartTimestamp, metrics.EndTimestamp, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
@@ -244,7 +269,7 @@ func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbIns
 
 	outputFile, err := os.Create(filename + "_" + "parsed_logs.txt")
 	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
+		return duration, metrics.StartTimestamp, metrics.EndTimestamp, fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer outputFile.Close()
 	syncWriter := utils.NewSyncWriter(outputFile)
@@ -288,18 +313,18 @@ func ProcessLogFile(filename string, numWorkers int, dbPool *pgxpool.Pool, dbIns
 	close(lines)
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading file: %w", err)
+		return duration, metrics.StartTimestamp, metrics.EndTimestamp, fmt.Errorf("error reading file: %w", err)
 	}
 
 	// Wait
 	<-done
 
-	duration := time.Since(metrics.StartTime)
+	duration = time.Since(metrics.StartTime)
 	log.Info().
 		Int("total_lines", lineCount).
 		Float64("duration_seconds", duration.Seconds()).
 		Float64("lines_per_second", float64(lineCount)/duration.Seconds()).
 		Msg("Finished processing log file")
 
-	return nil
+	return duration, metrics.StartTimestamp, metrics.EndTimestamp, nil
 }

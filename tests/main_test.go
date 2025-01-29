@@ -76,9 +76,7 @@ func setupTestDB() (*pgxpool.Pool, func()) {
 }
 
 // Helper function to create test log file
-func createTestLogFile(t testing.TB, testCase CaseType) (string, []*models.LogEntry, func()) {
-	content := Cases[testCase].input()
-	expected := Cases[testCase].expected().([]*models.LogEntry)
+func createTestLogFile(t testing.TB, content string) (string, func()) {
 
 	tmpfile, err := os.CreateTemp("", "logfile")
 	if err != nil {
@@ -92,18 +90,32 @@ func createTestLogFile(t testing.TB, testCase CaseType) (string, []*models.LogEn
 		t.Fatal(err)
 	}
 
-	return tmpfile.Name(), expected, func() {
+	return tmpfile.Name(), func() {
 		os.Remove(tmpfile.Name())
 	}
 }
 
 func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string) []*models.LogEntry {
-	fileName, expected, cleanup := createTestLogFile(t, ParseCorrectLines)
+	testCase := GetProcessLogFileTC1()
+
+	fileName, cleanup := createTestLogFile(t, testCase.logFileContent)
 	defer cleanup()
 
-	err := processor.ProcessLogFile(fileName, 2, db, dbInsertionT)
+	duration, startTS, endTS, err := processor.ProcessLogFile(fileName, 2, db, dbInsertionT)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if startTS != testCase.startTimeStamp {
+		t.Fatalf("expected start timestamp %v, got %v", testCase.startTimeStamp, startTS)
+	}
+
+	if endTS != testCase.endTimeStamp {
+		t.Fatalf("expected end timestamp %v, got %v", testCase.endTimeStamp, endTS)
+	}
+
+	if duration.Seconds() == 0 {
+		t.Fatalf("expected duration to be non-zero")
 	}
 
 	parsedLogsFilename := fileName + "_" + "parsed_logs.txt"
@@ -121,7 +133,7 @@ func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string)
 	defer os.Remove(expectedTempFile.Name())
 	fmt.Println(expectedTempFile.Name())
 
-	for _, entry := range expected {
+	for _, entry := range testCase.parsedEntries {
 		_, err := expectedTempFile.WriteString(entry.String())
 		if err != nil {
 			t.Fatalf("failed to write to temp file: %v", err)
@@ -144,7 +156,7 @@ func testProcessLogFileBase(t *testing.T, db *pgxpool.Pool, dbInsertionT string)
 		t.Fatalf("parsed logs are different from expected")
 	}
 
-	return expected
+	return testCase.parsedEntries
 }
 
 func testProcessLogFileBaseWithDB(t *testing.T, dbInsertionT string) {
@@ -187,6 +199,7 @@ func TestParseLogLine(t *testing.T) {
 }
 
 func TestProcessLogFileNoDB(t *testing.T) {
+	// calculating the duration of the process, start and end timestamps not handled for no db combiner
 	testProcessLogFileBase(t, nil, "none")
 }
 
@@ -222,7 +235,7 @@ func BenchmarkProcessLogFile(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				err := processor.ProcessLogFile(c.file, 8, testDB, c.dbInsertionT)
+				_, _, _, err := processor.ProcessLogFile(c.file, 8, testDB, c.dbInsertionT)
 				if err != nil {
 					b.Fatalf("unexpected error: %v", err)
 				}
