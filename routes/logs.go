@@ -12,7 +12,20 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func HandleUploadFile(c *gin.Context) {
+func handleExampleAuth(ctx *gin.Context) {
+	userId := ctx.GetUint("userId")
+	email := ctx.GetString("email")
+	role := ctx.GetString("role")
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "You are authenticated",
+		"userId":  userId,
+		"email":   email,
+		"role":    role,
+	})
+}
+
+func handleUploadFile(c *gin.Context) {
 	log.Info().Msg("Trying to get file")
 	file, err := c.FormFile("logfile")
 

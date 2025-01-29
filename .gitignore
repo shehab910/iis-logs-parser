@@ -3,3 +3,4 @@
 .vscode/
 main
 uploaded_logs/
+.env

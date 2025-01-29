@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"iis-logs-parser/config"
 	db "iis-logs-parser/database"
 	"iis-logs-parser/models"
 	"iis-logs-parser/processor"
 	"iis-logs-parser/routes"
+	"iis-logs-parser/utils"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/tracelog"
+	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -119,6 +122,20 @@ func main() {
 		os.Mkdir("uploaded_logs", 0755)
 	}
 
+	if err := godotenv.Load(".env.local"); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load .env file")
+	}
+
+	if os.Getenv("GO_ENV") != "production" {
+		if len(os.Args) < 2 {
+			log.Fatal().Msg("FROM_EMAIL_PASSWORD not provided")
+		}
+
+		os.Setenv("FROM_EMAIL_PASSWORD", os.Args[1])
+	}
+
+	utils.InitValidator()
+
 	db.InitGormDB()
 
 	var scheduleNext func() // Declare a function variable for self-referencing
@@ -137,5 +154,5 @@ func main() {
 
 	r := gin.Default()
 	routes.RegisterRoutes(r)
-	r.Run()
+	r.Run(":" + config.GetServerPortOrDefault())
 }
