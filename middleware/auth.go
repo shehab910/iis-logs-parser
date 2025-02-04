@@ -25,14 +25,21 @@ func Authenticate(ctx *gin.Context) {
 		return
 	}
 
-	if !claims["is_verified"].(bool) {
+	if isVerified, ok := claims["is_verified"].(bool); !isVerified || !ok {
 		ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"error": "Please login again and verify your email",
 		})
 		return
 	}
 
-	ctx.Set("userId", uint(claims["userId"].(float64)))
+	userId, ok := claims["userId"].(float64)
+	if !ok {
+		ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "Please login again and verify your email",
+		})
+		return
+	}
+	ctx.Set("userId", uint(userId))
 	ctx.Set("role", claims["role"])
 	ctx.Set("email", claims["email"])
 	ctx.Next()

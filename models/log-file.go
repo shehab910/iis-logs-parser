@@ -17,7 +17,9 @@ const (
 
 type LogFile struct {
 	gorm.Model
-	LogEntries     []LogEntry `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	LogEntries []LogEntry `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	// UserID         uint           `gorm:"not null"`                   // owner of the file
+	DomainID       uint       `gorm:"not null"`                   // Domain to which the log file belongs.
 	Name           string     `gorm:"type:varchar(255);not null"` // Name of the uploaded file.
 	Size           uint       `gorm:"not null"`                   // File size in bytes.
 	Status         Status     `gorm:"type:varchar(20);not null"`  // Initially set to Pending

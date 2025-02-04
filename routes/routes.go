@@ -14,18 +14,28 @@ func RegisterRoutes(server *gin.Engine) {
 		{
 			authenticated.GET("/example", handleExampleAuth)
 		}
-		v1.POST("/log-entries")       //, CreateLogEntry)
-		v1.GET("/log-entries/:id")    //, GetLogEntry)
-		v1.PUT("/log-entries/:id")    //, UpdateLogEntry)
-		v1.DELETE("/log-entries/:id") //, DeleteLogEntry)
 
-		v1.POST("/upload-logs", handleUploadFile)
-
-		users := v1.Group("/users")
+		usersV1 := v1.Group("/users")
 		{
-			users.POST("/register", handleRegisterUser)
-			users.POST("/login", handleLoginUser)
-			users.GET("/verify", handleVerifyUser)
+			usersV1.POST("/register", handleRegisterUser)
+			usersV1.POST("/login", handleLoginUser)
+			usersV1.GET("/verify", handleVerifyUser)
+		}
+
+		domainsV1 := v1.Group("/domains")
+		domainsV1.Use(middleware.Authenticate)
+		{
+			domainsV1.GET("/", handleReadDomains)
+			domainsV1.POST("/", handleCreateDomain)
+			domainsV1.PUT("/:id", handleUpdateDomain)
+			domainsV1.DELETE("/:id", handleDeleteDomain)
+		}
+
+		logsV1 := v1.Group("/logs")
+		logsV1.Use(middleware.Authenticate)
+		{
+			logsV1.GET("/", GetLogFile)
+			logsV1.POST("/upload", handleUploadLogFile)
 		}
 	}
 

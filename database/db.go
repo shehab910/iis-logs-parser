@@ -95,6 +95,7 @@ func InitGormDB() {
 		GormDB.AutoMigrate(&models.LogEntry{}),
 		GormDB.AutoMigrate(&models.LogFile{}),
 		GormDB.AutoMigrate(&models.User{}),
+		GormDB.AutoMigrate(&models.Domain{}),
 	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("DB-GORM: Failed to migrate database")

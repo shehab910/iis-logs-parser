@@ -9,6 +9,8 @@ import (
 
 type User struct {
 	gorm.Model
+	Domains []Domain
+
 	Email        string `json:"email" gorm:"unique" validate:"required,email"`
 	Password     string `json:"password" gorm:"not null" validate:"required,strongpassword"`
 	FirstName    string `json:"firstName" validate:"required"`
