@@ -2,8 +2,11 @@ package routes
 
 import (
 	"errors"
+	"fmt"
 	db "iis-logs-parser/database"
 	"iis-logs-parser/models"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,101 +17,148 @@ import (
 	"gorm.io/gorm"
 )
 
-func handleUploadLogFile(c *gin.Context) {
-	userId := c.GetUint("userId")
-	log.Info().Msg("Trying to get file")
-	file, form1Err := c.FormFile("logfile")
-	domain, form2Err := strconv.ParseInt(c.PostForm("domain"), 10, 64)
+type UploadResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	FileID  uint   `json:"file_id,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
 
-	if form1Err != nil {
-		log.Error().Err(form1Err).Msg("Failed to get file")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"message": "No file uploaded",
-		})
-		return
+func saveFile(file *multipart.FileHeader, path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	if form2Err != nil {
-		log.Error().Err(form2Err).Msg("No domain provided")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "No domain provided",
-		})
-		return
+	src, err := file.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open uploaded file: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err = io.Copy(dst, src); err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
 	}
 
-	log.Info().Uint("userId", userId).Msg("File uploaded")
-	log.Info().Uint("userId", userId).Int64("userEnteredDomainId", domain).Msg("Checking user domain ownership")
-	res := db.GormDB.First(&models.Domain{}, "id = ? AND user_id = ?", domain, userId)
-	if res.Error != nil {
-		if errors.Is(res.Error, gorm.ErrRecordNotFound) {
-			log.Err(res.Error).Msg("Domain not found for user")
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "Domain not found",
-			})
-			return
-		}
-		log.Err(res.Error).Msg("Error finding domain")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Error finding domain",
-		})
-		return
-	}
-	log.Info().Uint("userId", userId).Int64("userEnteredDomainId", domain).Msg("Domain found")
+	return nil
+}
 
-	log.Info().Uint("userId", userId).Int64("domain", domain).Msg("Saving log file entry in db")
+func processFile(tx *gorm.DB, file *multipart.FileHeader, domainId int64) (UploadResponse, error) {
 	filename := filepath.Base(file.Filename)
 
 	logFileEntry := models.LogFile{
 		Name:     filename,
 		Size:     uint(file.Size),
 		Status:   models.StatusPending,
-		DomainID: uint(domain),
+		DomainID: uint(domainId),
 	}
 
-	tx := db.GormDB.Begin()
-	res = tx.Create(&logFileEntry)
-
-	if res.Error != nil {
-		log.Err(res.Error).Uint("userId", userId).Int64("domain", domain).Msg("Couldn't create log file entry in db")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Couldn't save db entry",
-		})
-		return
+	if err := tx.Create(&logFileEntry).Error; err != nil {
+		return UploadResponse{
+			Success: false,
+			Message: "Failed to save database entry",
+			Error:   err.Error(),
+		}, err
 	}
-	log.Info().Uint("userId", userId).Int64("domain", domain).Msg("Log file entry saved in db")
 
-	log.Info().Uint("userId", userId).Int64("domain", domain).Msg("Saving log file in filesystem")
 	savedFileName := filepath.Join("uploaded_logs", filename+"-"+strconv.FormatUint(uint64(logFileEntry.ID), 10))
-	err := c.SaveUploadedFile(file, savedFileName)
+	if err := saveFile(file, savedFileName); err != nil {
+		return UploadResponse{
+			Success: false,
+			Message: "Failed to save file",
+			Error:   err.Error(),
+		}, err
+	}
+
+	return UploadResponse{
+		Success: true,
+		Message: "File uploaded & saved",
+		FileID:  logFileEntry.ID,
+	}, nil
+}
+
+func handleUploadLogFiles(ctx *gin.Context) {
+	userId := ctx.GetUint("userId")
+	domainStr := ctx.PostForm("domain")
+
+	// Validate and parse domainId
+	domainId, err := strconv.ParseInt(domainStr, 10, 64)
 	if err != nil {
-		log.Err(err).Uint("userId", userId).Int64("domain", domain).Msg("Couldn't save file")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Couldn't save file",
+		log.Error().Err(err).Msg("Invalid domain")
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid domain",
 		})
-		err = tx.Rollback().Error
-		if err != nil {
-			log.Err(err).Msg("Couldn't rollback transaction")
-		}
 		return
 	}
-	log.Info().Uint("userId", userId).Int64("domain", domain).Msg("Saved log file in filesystem")
+	log.Info().Uint("userId", userId).Int64("userEnteredDomainId", domainId).Msg("Checking user domain ownership")
+	res := db.GormDB.First(&models.Domain{}, "id = ? AND user_id = ?", domainId, userId)
+	if res.Error != nil {
+		if errors.Is(res.Error, gorm.ErrRecordNotFound) {
+			log.Err(res.Error).Msg("Domain not found for user")
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"error": "Domain not found",
+			})
+			return
+		}
+		log.Err(res.Error).Msg("Error finding domain")
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Error finding domain",
+		})
+		return
+	}
+	log.Info().Uint("userId", userId).Int64("userEnteredDomainId", domainId).Msg("Domain found")
+	////
 
-	err = tx.Commit().Error
+	// Get uploaded files
+	form, err := ctx.MultipartForm()
 	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "No files uploaded",
+		})
+	}
+	files := form.File["logfiles"]
+	////
+
+	// Process files
+	responses := make([]UploadResponse, 0, len(files))
+	tx := db.GormDB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Error().Interface("recover", r).Msg("Transaction rolled back due to panic")
+		}
+	}()
+
+	for _, file := range files {
+		response, err := processFile(tx, file, domainId)
+
+		responses = append(responses, response)
+		if err != nil {
+			tx.Rollback()
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error":     "Couldn't save db entry",
+				"responses": responses,
+			})
+			return
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
 		log.Err(err).Msg("Couldn't commit transaction")
-		c.JSON(http.StatusInternalServerError, gin.H{
+		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Couldn't save db entry",
 		})
-		err = os.Remove(savedFileName)
-		if err != nil {
-			log.Err(err).Msg("Couldn't remove file: " + savedFileName)
-		}
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "File uploaded & saved",
-		"file_id": logFileEntry.ID,
+	ctx.JSON(http.StatusCreated, gin.H{
+		"message":   "File upload completed",
+		"responses": responses,
 	})
 }
 

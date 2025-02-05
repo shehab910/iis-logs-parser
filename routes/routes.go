@@ -30,7 +30,7 @@ func RegisterRoutes(server *gin.Engine) {
 		{
 			logsV1.GET("/", handleGetAllLogFilesForUser)
 			logsV1.GET("/domain/:id", handleGetDomainLogFiles)
-			logsV1.POST("/upload", handleUploadLogFile)
+			logsV1.POST("/upload", handleUploadLogFiles)
 			logsV1.DELETE("/:id", handleDeleteLogFile)
 		}
 	}
