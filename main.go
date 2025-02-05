@@ -127,11 +127,12 @@ func main() {
 	}
 
 	if os.Getenv("GO_ENV") != "production" {
-		if len(os.Args) < 2 {
-			log.Fatal().Msg("FROM_EMAIL_PASSWORD not provided")
+		if emailPass := os.Getenv("FROM_EMAIL_PASSWORD"); emailPass == "" {
+			if len(os.Args) < 2 {
+				log.Fatal().Msg("Please provide FROM_EMAIL_PASSWORD as an argument, or set it in .env.local")
+			}
+			os.Setenv("FROM_EMAIL_PASSWORD", os.Args[1])
 		}
-
-		os.Setenv("FROM_EMAIL_PASSWORD", os.Args[1])
 	}
 
 	utils.InitValidator()
