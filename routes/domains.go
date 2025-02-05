@@ -149,7 +149,8 @@ func handleDeleteDomain(ctx *gin.Context) {
 		return
 	}
 
-	if result := db.GormDB.Delete(&existingDomain); result.Error != nil {
+	// In spite of having a constraint set, .Select must be called here to cascade deleting, very weird behavior
+	if result := db.GormDB.Select("LogFiles").Delete(&existingDomain); result.Error != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete domain"})
 		return
 	}

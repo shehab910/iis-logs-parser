@@ -14,20 +14,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// Function for testing
-func handleExampleAuth(ctx *gin.Context) {
-	userId := ctx.GetUint("userId")
-	email := ctx.GetString("email")
-	role := ctx.GetString("role")
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "You are authenticated",
-		"userId":  userId,
-		"email":   email,
-		"role":    role,
-	})
-}
-
 func handleUploadLogFile(c *gin.Context) {
 	userId := c.GetUint("userId")
 	log.Info().Msg("Trying to get file")
@@ -126,22 +112,69 @@ func handleUploadLogFile(c *gin.Context) {
 	})
 }
 
-// Function for testing
-func GetLogFile(c *gin.Context) {
-	paramID := c.Query("id")
+func handleGetAllLogFilesForUser(ctx *gin.Context) {
+	userId := ctx.GetUint("userId")
+	log.Warn().Uint("userId", userId).Msg("userId")
 
-	var logfileWithEntries models.LogFile
-	// db.Model(&User{}).Preload("CreditCards").Find(&users)
-	err := db.GormDB.Model(&models.LogFile{}).Preload("LogEntries").First(&logfileWithEntries, "id = ?", paramID)
-	// err := db.GormDB.First(&logfileWithEntries, "id = ?", paramID)
-	if err.Error != nil {
-		log.Err(err.Error).Msg("Couldn't find log file")
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": err.Error.Error(),
+	var logFiles []models.LogFile
+	err := db.GormDB.Joins("JOIN domains ON domains.id = log_files.domain_id").Where("domains.user_id = ?", userId).Find(&logFiles).Error
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Couldn't get log files",
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"result": logfileWithEntries,
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"result": logFiles,
+	})
+}
+
+func handleGetDomainLogFiles(ctx *gin.Context) {
+	domainId := ctx.Param("id")
+	userId := ctx.GetUint("userId")
+
+	var logFiles []models.LogFile
+	err := db.GormDB.Joins("JOIN domains ON domains.id = log_files.domain_id").Where("domains.user_id = ? AND domains.id = ?", userId, domainId).Find(&logFiles).Error
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Couldn't get log files",
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"result": logFiles,
+	})
+}
+
+func handleDeleteLogFile(ctx *gin.Context) {
+	fileId := ctx.Param("id")
+	userId := ctx.GetUint("userId")
+
+	var logFile models.LogFile
+	err := db.GormDB.Joins("JOIN domains ON domains.id = log_files.domain_id").Where("domains.user_id = ?", userId).First(&logFile, fileId).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"error": "Log file not found",
+			})
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Something went wrong",
+		})
+		return
+	}
+
+	err = db.GormDB.Select("LogEntries").Delete(&logFile).Error
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"message": "Couldn't delete log file",
+		})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "File deleted",
 	})
 }

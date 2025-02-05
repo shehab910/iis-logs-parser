@@ -1,12 +1,18 @@
 package models
 
-import "fmt"
+import (
+	"fmt"
+
+	"gorm.io/gorm"
+)
 
 type LogEntry struct {
 	// IMPORTANT: This struct is used by both pgx (parser) and gorm (api)
 	// and MUST be auto migrated with gorm
-	ID          uint `gorm:"primarykey"`
-	LogFileID   uint // Foreign key to the owner file
+	gorm.Model
+	LogFileID uint // Foreign key to the owner file
+	LogFile   LogFile
+
 	Date        string
 	Time        string
 	ServerIP    string

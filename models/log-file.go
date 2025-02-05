@@ -17,8 +17,12 @@ const (
 
 type LogFile struct {
 	gorm.Model
-	LogEntries []LogEntry `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	LogEntries []LogEntry `gorm:"foreignKey:LogFileID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+
+	// TODO Think: Is it worth it to break DB normalization rule here to simplify further operations?
+	// Knowing that almost all request (db calls) will need to verify the ownership of the log file.
 	// UserID         uint           `gorm:"not null"`                   // owner of the file
+
 	DomainID       uint       `gorm:"not null"`                   // Domain to which the log file belongs.
 	Name           string     `gorm:"type:varchar(255);not null"` // Name of the uploaded file.
 	Size           uint       `gorm:"not null"`                   // File size in bytes.

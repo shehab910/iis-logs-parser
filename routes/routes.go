@@ -9,12 +9,6 @@ import (
 func RegisterRoutes(server *gin.Engine) {
 	v1 := server.Group("/api/v1")
 	{
-		authenticated := v1.Group("/")
-		authenticated.Use(middleware.Authenticate)
-		{
-			authenticated.GET("/example", handleExampleAuth)
-		}
-
 		usersV1 := v1.Group("/users")
 		{
 			usersV1.POST("/register", handleRegisterUser)
@@ -34,8 +28,10 @@ func RegisterRoutes(server *gin.Engine) {
 		logsV1 := v1.Group("/logs")
 		logsV1.Use(middleware.Authenticate)
 		{
-			logsV1.GET("/", GetLogFile)
+			logsV1.GET("/", handleGetAllLogFilesForUser)
+			logsV1.GET("/domain/:id", handleGetDomainLogFiles)
 			logsV1.POST("/upload", handleUploadLogFile)
+			logsV1.DELETE("/:id", handleDeleteLogFile)
 		}
 	}
 
