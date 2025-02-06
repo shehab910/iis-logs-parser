@@ -8,8 +8,8 @@ import (
 
 type Domain struct {
 	gorm.Model
-	UserID uint `gorm:"not null"  validate:"required"` // Foreign Key to link to user
-	User   User
+	UserID   uint `gorm:"not null"  validate:"required"` // Foreign Key to link to user
+	LogFiles []LogFile
 
 	DomainName     string `json:"domainName" gorm:"type:varchar(255);not null" validate:"required"` // Domain name
 	Description    string `json:"description" gorm:"type:text"  validate:"required"`                // Description
