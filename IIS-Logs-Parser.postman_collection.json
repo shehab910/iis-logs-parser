@@ -1,0 +1,313 @@
+{
+  "info": {
+    "_postman_id": "6cf76b5f-9df6-4410-8d64-27ee9e993573",
+    "name": "IIS-Logs-Parser",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "41634883"
+  },
+  "item": [
+    {
+      "name": "Domains",
+      "item": [
+        {
+          "name": "My Domains",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{server_url}}/api/v1/domains",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "domains"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Domain",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"domainName\": \"u2nnewDomain\",\r\n    \"description\": \"new domain description\",\r\n    \"businessField\": \"businessField\",\r\n    \"businessSector\": \"businessSector\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{server_url}}/api/v1/domains",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "domains"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Domain",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"domainName\": \"u1UpdatedDomain\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{server_url}}/api/v1/domains/1",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "domains", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Domain",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{server_url}}/api/v1/domains/1",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "domains", "1"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register User",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"email\":\"shehabs.910@gmail.com\",\r\n    \"password\":\"examplE1!\",\r\n    \"firstName\":\"example\",\r\n    \"lastName\":\"example\",\r\n    \"jobTitle\":\"example\",\r\n    \"organization\":\"example\",\r\n    \"phoneNumber\":\"example\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{server_url}}/api/v1/users/register",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "users", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login User",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"email\": \"shehabs.910@gmail.com\",\r\n    \"password\": \"examplE1!\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{server_url}}/api/v1/users/login",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "users", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify User Email",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"email\": \"example1@example.com\",\r\n    \"password\": \"examplE1!\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{server_url}}/api/v1/users/verify?token=",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "users", "verify"],
+              "query": [
+                {
+                  "key": "token",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Logs",
+      "item": [
+        {
+          "name": "Upload Log File",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "logfiles",
+                  "type": "file",
+                  "src": "///wsl.localhost/Ubuntu/home/shehab/zmini_u_ex190905.log"
+                },
+                {
+                  "key": "domain",
+                  "value": "3",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{server_url}}/api/v1/domains/3/files",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "logs", "upload"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Log Files",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{server_url}}/api/v1/logs",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "logs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Log File",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{server_url}}/api/v1/logs/1",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "logs", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Domain Log Files",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{server_url}}/api/v1/logs/domain/3",
+              "host": ["{{server_url}}"],
+              "path": ["api", "v1", "logs", "domain", "3"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "type": "jwt",
+    "jwt": [
+      {
+        "key": "payload",
+        "value": "{\r\n    \"userId\": 1,\r\n    \"is_verified\": true\r\n}",
+        "type": "string"
+      },
+      {
+        "key": "headerPrefix",
+        "value": "",
+        "type": "string"
+      },
+      {
+        "key": "secret",
+        "value": "ReplaceWithStrongSecret",
+        "type": "string"
+      },
+      {
+        "key": "algorithm",
+        "value": "HS256",
+        "type": "string"
+      },
+      {
+        "key": "isSecretBase64Encoded",
+        "value": false,
+        "type": "boolean"
+      },
+      {
+        "key": "addTokenTo",
+        "value": "header",
+        "type": "string"
+      },
+      {
+        "key": "queryParamKey",
+        "value": "token",
+        "type": "string"
+      },
+      {
+        "key": "header",
+        "value": "{}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "exec": [""]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "server_url",
+      "value": "",
+      "type": "default"
+    }
+  ]
+}

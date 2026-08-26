@@ -21,6 +21,7 @@ func RegisterRoutes(server *gin.Engine) {
 		{
 			domainsV1.GET("/", handleReadDomains)
 			domainsV1.POST("/", handleCreateDomain)
+			domainsV1.POST("/:id/files", handleUploadLogFiles)
 			domainsV1.PUT("/:id", handleUpdateDomain)
 			domainsV1.DELETE("/:id", handleDeleteDomain)
 		}
@@ -30,7 +31,6 @@ func RegisterRoutes(server *gin.Engine) {
 		{
 			logsV1.GET("/", handleGetAllLogFilesForUser)
 			logsV1.GET("/domain/:id", handleGetDomainLogFiles)
-			logsV1.POST("/upload", handleUploadLogFiles)
 			logsV1.DELETE("/:id", handleDeleteLogFile)
 		}
 	}

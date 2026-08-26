@@ -84,7 +84,7 @@ func processFile(tx *gorm.DB, file *multipart.FileHeader, domainId int64) (Uploa
 
 func handleUploadLogFiles(ctx *gin.Context) {
 	userId := ctx.GetUint("userId")
-	domainStr := ctx.PostForm("domain")
+	domainStr := ctx.Param("id")
 
 	// Validate and parse domainId
 	domainId, err := strconv.ParseInt(domainStr, 10, 64)
@@ -120,6 +120,7 @@ func handleUploadLogFiles(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "No files uploaded",
 		})
+		return
 	}
 	files := form.File["logfiles"]
 	////

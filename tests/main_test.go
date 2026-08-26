@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 
 	db "iis-logs-parser/database"
@@ -193,7 +194,7 @@ func TestParseLogLine(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if *entry != *expected {
+	if !reflect.DeepEqual(entry, expected) {
 		t.Fatalf("expected %+v, got %+v", expected, entry)
 	}
 }
